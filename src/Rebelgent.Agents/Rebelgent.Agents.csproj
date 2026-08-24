@@ -1,0 +1,7 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rebelgent.Core\Rebelgent.Core.csproj" />
+  </ItemGroup>
+
+</Project>

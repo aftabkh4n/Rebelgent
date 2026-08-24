@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Rebelgent.Agents/Rebelgent.Agents.csproj" />
+    <Project Path="src/Rebelgent.Api/Rebelgent.Api.csproj" />
+    <Project Path="src/Rebelgent.Contracts/Rebelgent.Contracts.csproj" />
+    <Project Path="src/Rebelgent.Core/Rebelgent.Core.csproj" />
+    <Project Path="src/Rebelgent.Infrastructure/Rebelgent.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Rebelgent.Agents.Tests/Rebelgent.Agents.Tests.csproj" />
+    <Project Path="tests/Rebelgent.Core.Tests/Rebelgent.Core.Tests.csproj" />
+  </Folder>
+</Solution>

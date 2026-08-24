@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet *)",
+      "PowerShell(dotnet new gitignore *)",
+      "PowerShell(New-Item *)"
+    ]
+  }
+}

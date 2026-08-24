@@ -1,0 +1,10 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <ItemGroup>
+    <ProjectReference Include="..\Rebelgent.Core\Rebelgent.Core.csproj" />
+    <ProjectReference Include="..\Rebelgent.Contracts\Rebelgent.Contracts.csproj" />
+    <ProjectReference Include="..\Rebelgent.Agents\Rebelgent.Agents.csproj" />
+    <ProjectReference Include="..\Rebelgent.Infrastructure\Rebelgent.Infrastructure.csproj" />
+  </ItemGroup>
+
+</Project>
