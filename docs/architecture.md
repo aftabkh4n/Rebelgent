@@ -8,7 +8,57 @@ Rebelgent itself does not implement any AI. It defines the contracts, domain mod
 
 ---
 
-## Long-Term System Flow
+## Implementation Status
+
+| Component | Status |
+|-----------|--------|
+| Core domain (AgentTask, lifecycle, approval model) | Implemented (M1) |
+| Agent registry and abstractions | Implemented (M1) |
+| ASP.NET Core API (/health, /api/system/info) | Implemented (M1) |
+| Telegram long polling with authorization | Implemented (M2) |
+| Task creation via Telegram | Implemented (M2) |
+| SQLite persistence via EF Core | Implemented (M2) |
+| REST task API (POST/GET) | Implemented (M2) |
+| AI agent execution (Claude Code, etc.) | Planned (M3+) |
+| GitHub integration | Planned |
+| Isolated agent worktrees | Planned |
+| Human approval via Telegram | Planned |
+
+---
+
+## Implemented Data Flow (Milestone 2)
+
+```
+User (Telegram)
+  |
+  v (message or command)
+TelegramBotService (long polling BackgroundService)
+  |
+  v
+TelegramAuthorizationService — checks numeric user ID against AllowedUserIds
+  |
+  v (authorized only)
+TelegramUpdateHandler — routes commands vs natural language
+  |
+  v
+ITaskService (TaskService in Rebelgent.Infrastructure)
+  |
+  v
+IAgentTaskRepository (AgentTaskRepository in Rebelgent.Persistence)
+  |
+  v
+RebelgentDbContext (EF Core)
+  |
+  v
+SQLite (data/rebelgent.db)
+  |
+  v (task created, confirmation message back to Telegram)
+User
+```
+
+---
+
+## Long-Term System Flow (Planned)
 
 ```
 User
@@ -66,10 +116,12 @@ This is the intended long-term flow. As of Milestone 1, only the core abstractio
 
 | Project | Responsibility |
 |---------|---------------|
-| `Rebelgent.Core` | Domain models, enums, exceptions, task lifecycle rules |
+| `Rebelgent.Core` | Domain models, enums, exceptions, task lifecycle rules, repository interfaces |
 | `Rebelgent.Contracts` | API request/response DTOs |
 | `Rebelgent.Agents` | `IRebelAgent` interface, registry, execution models |
-| `Rebelgent.Infrastructure` | DI composition, future infrastructure adapters |
+| `Rebelgent.Infrastructure` | TaskService implementation, DI composition |
+| `Rebelgent.Persistence` | EF Core SQLite adapter, AgentTaskRepository |
+| `Rebelgent.Telegram` | Telegram bot adapter, authorization, update handler |
 | `Rebelgent.Api` | ASP.NET Core API, composition root |
 
 ### Dependency Graph
@@ -80,7 +132,11 @@ Rebelgent.Api
   -> Rebelgent.Agents
   -> Rebelgent.Infrastructure
      -> Rebelgent.Agents
-        -> Rebelgent.Core
+        -> Rebelgent.Core  (zero external dependencies)
+  -> Rebelgent.Persistence
+     -> Rebelgent.Core
+  -> Rebelgent.Telegram
+     -> Rebelgent.Core
 ```
 
 `Rebelgent.Core` has zero external dependencies. `Rebelgent.Contracts` has zero external dependencies.

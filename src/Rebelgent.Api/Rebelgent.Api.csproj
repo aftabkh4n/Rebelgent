@@ -1,10 +1,13 @@
-<Project Sdk="Microsoft.NET.Sdk.Web">
+﻿<Project Sdk="Microsoft.NET.Sdk.Web"><PropertyGroup>  <UserSecretsId>e41b193c-cb47-4263-bb1c-bf0bd4eb45f7</UserSecretsId>
+  </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Rebelgent.Core\Rebelgent.Core.csproj" />
     <ProjectReference Include="..\Rebelgent.Contracts\Rebelgent.Contracts.csproj" />
     <ProjectReference Include="..\Rebelgent.Agents\Rebelgent.Agents.csproj" />
     <ProjectReference Include="..\Rebelgent.Infrastructure\Rebelgent.Infrastructure.csproj" />
+    <ProjectReference Include="..\Rebelgent.Persistence\Rebelgent.Persistence.csproj" />
+    <ProjectReference Include="..\Rebelgent.Telegram\Rebelgent.Telegram.csproj" />
   </ItemGroup>
 
 </Project>

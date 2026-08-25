@@ -40,6 +40,49 @@ public class AgentTask
         CreatedAt = DateTimeOffset.UtcNow;
     }
 
+    /// <summary>
+    /// Reconstitutes an AgentTask from persisted data.
+    /// For use by the persistence layer only.
+    /// </summary>
+    internal static AgentTask Reconstitute(
+        Guid id,
+        string projectId,
+        string title,
+        string description,
+        AgentRole assignedRole,
+        AgentTaskStatus status,
+        RiskLevel risk,
+        DateTimeOffset createdAt,
+        DateTimeOffset? startedAt,
+        DateTimeOffset? completedAt,
+        string? branchName,
+        int? pullRequestNumber)
+    {
+        return new AgentTask
+        {
+            Id = id,
+            ProjectId = projectId,
+            Title = title,
+            Description = description,
+            AssignedRole = assignedRole,
+            Status = status,
+            Risk = risk,
+            CreatedAt = createdAt,
+            StartedAt = startedAt,
+            CompletedAt = completedAt,
+            BranchName = branchName,
+            PullRequestNumber = pullRequestNumber
+        };
+    }
+
+    // Private parameterless constructor for reconstitution only.
+    private AgentTask()
+    {
+        ProjectId = string.Empty;
+        Title = string.Empty;
+        Description = string.Empty;
+    }
+
     internal void SetStatus(AgentTaskStatus newStatus)
     {
         Status = newStatus;

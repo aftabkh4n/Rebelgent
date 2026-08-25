@@ -3,6 +3,9 @@
 ##
 ## Get latest from `dotnet new gitignore`
 
+# Rebelgent runtime data (SQLite database files)
+data/
+
 # dotenv files
 .env
 

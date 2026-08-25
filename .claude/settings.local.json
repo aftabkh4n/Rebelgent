@@ -3,7 +3,13 @@
     "allow": [
       "Bash(dotnet *)",
       "PowerShell(dotnet new gitignore *)",
-      "PowerShell(New-Item *)"
+      "PowerShell(New-Item *)",
+      "Bash(kill %1)",
+      "Bash(wait %1)",
+      "Bash(echo \"Exit: $?\")",
+      "Bash(curl -s -X POST http://localhost:5236/api/tasks -H 'Content-Type: application/json' -d '{\"projectId\":\"default\",\"title\":\"Add memory expiration to BlazorMemory\",\"description\":\"Add memory expiration support\"}')",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s \"http://localhost:5236/api/tasks?count=10\")"
     ]
   }
 }

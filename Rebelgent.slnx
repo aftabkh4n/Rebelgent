@@ -5,9 +5,13 @@
     <Project Path="src/Rebelgent.Contracts/Rebelgent.Contracts.csproj" />
     <Project Path="src/Rebelgent.Core/Rebelgent.Core.csproj" />
     <Project Path="src/Rebelgent.Infrastructure/Rebelgent.Infrastructure.csproj" />
+    <Project Path="src/Rebelgent.Persistence/Rebelgent.Persistence.csproj" />
+    <Project Path="src/Rebelgent.Telegram/Rebelgent.Telegram.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Rebelgent.Agents.Tests/Rebelgent.Agents.Tests.csproj" />
     <Project Path="tests/Rebelgent.Core.Tests/Rebelgent.Core.Tests.csproj" />
+    <Project Path="tests/Rebelgent.Persistence.Tests/Rebelgent.Persistence.Tests.csproj" />
+    <Project Path="tests/Rebelgent.Telegram.Tests/Rebelgent.Telegram.Tests.csproj" />
   </Folder>
 </Solution>
