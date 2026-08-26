@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Rebelgent.Orchestration.Projects;
 using Rebelgent.Telegram.Authorization;
 using Rebelgent.Telegram.Handlers;
 using Rebelgent.Telegram.Tests.Fakes;
@@ -15,13 +16,16 @@ public class TelegramUpdateHandlerTests
     private const long UnauthorizedUserId = 99L;
     private const long ChatId = 1000L;
 
-    private (TelegramUpdateHandler handler, FakeTaskService taskService, FakeMessageSender sender) Build()
+    private (TelegramUpdateHandler handler, FakeTaskService taskService, FakeMessageSender sender) Build(
+        IEnumerable<ProjectDefinition>? projects = null)
     {
         var options = Microsoft.Extensions.Options.Options.Create(new TelegramOptions { AllowedUserIds = [AuthorizedUserId] });
         var auth = new TelegramAuthorizationService(options, NullLogger<TelegramAuthorizationService>.Instance);
         var taskService = new FakeTaskService();
         var sender = new FakeMessageSender();
-        var handler = new TelegramUpdateHandler(taskService, sender, auth, NullLogger<TelegramUpdateHandler>.Instance);
+        var projectRegistry = new FakeProjectRegistry(projects);
+        var orchestrator = new FakeTaskOrchestrator();
+        var handler = new TelegramUpdateHandler(taskService, sender, auth, projectRegistry, orchestrator, NullLogger<TelegramUpdateHandler>.Instance);
         return (handler, taskService, sender);
     }
 

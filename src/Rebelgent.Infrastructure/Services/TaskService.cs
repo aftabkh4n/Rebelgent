@@ -13,11 +13,13 @@ namespace Rebelgent.Infrastructure.Services;
 public class TaskService : ITaskService
 {
     private readonly IAgentTaskRepository _repository;
+    private readonly TaskLifecycleService _lifecycle;
     private readonly ILogger<TaskService> _logger;
 
-    public TaskService(IAgentTaskRepository repository, ILogger<TaskService> logger)
+    public TaskService(IAgentTaskRepository repository, TaskLifecycleService lifecycle, ILogger<TaskService> logger)
     {
         _repository = repository;
+        _lifecycle = lifecycle;
         _logger = logger;
     }
 
@@ -49,4 +51,30 @@ public class TaskService : ITaskService
 
     public Task<IReadOnlyCollection<AgentTask>> GetRecentTasksAsync(int count = 20, CancellationToken cancellationToken = default)
         => _repository.GetRecentAsync(count, cancellationToken);
+
+    public Task<IReadOnlyCollection<AgentTask>> FindByPrefixAsync(string prefix, int maxResults, CancellationToken cancellationToken = default)
+        => _repository.FindByPrefixAsync(prefix, maxResults, cancellationToken);
+
+    public async Task<AgentTask?> TransitionAsync(Guid id, AgentTaskStatus newStatus, CancellationToken cancellationToken = default)
+    {
+        var task = await _repository.GetByIdAsync(id, cancellationToken);
+        if (task is null) return null;
+
+        _lifecycle.Transition(task, newStatus);
+        await _repository.UpdateAsync(task, cancellationToken);
+
+        _logger.LogInformation("Task {TaskId} transitioned to {Status}", id, newStatus);
+        return task;
+    }
+
+    public async Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default)
+    {
+        var task = await _repository.GetByIdAsync(id, cancellationToken);
+        if (task is null) return null;
+
+        task.SetBranchName(branchName);
+        await _repository.UpdateAsync(task, cancellationToken);
+
+        return task;
+    }
 }

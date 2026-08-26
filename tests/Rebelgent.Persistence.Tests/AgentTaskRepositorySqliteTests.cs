@@ -151,7 +151,7 @@ public class TaskServiceSqliteTests : IDisposable
         _db = new RebelgentDbContext(options);
         _db.Database.EnsureCreated();
         _repository = new AgentTaskRepository(_db);
-        _service = new TaskService(_repository, NullLogger<TaskService>.Instance);
+        _service = new TaskService(_repository, new TaskLifecycleService(), NullLogger<TaskService>.Instance);
     }
 
     public void Dispose()

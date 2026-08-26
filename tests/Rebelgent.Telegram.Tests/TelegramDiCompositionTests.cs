@@ -1,5 +1,9 @@
 using Microsoft.Extensions.DependencyInjection;
+using Rebelgent.ClaudeCode.DependencyInjection;
 using Rebelgent.Infrastructure.DependencyInjection;
+using Rebelgent.Orchestration.DependencyInjection;
+using Rebelgent.Orchestration.Options;
+using Rebelgent.Orchestration.Projects;
 using Rebelgent.Persistence;
 using Rebelgent.Persistence.Options;
 using Rebelgent.Telegram.Handlers;
@@ -25,8 +29,18 @@ public class TelegramDiCompositionTests
             opts.AllowedUserIds = [];
         });
 
+        services.Configure<WorkspaceOptions>(opts =>
+            opts.RootPath = @"D:\Projects\_RebelgentWorkspaces");
+
+        services.Configure<ExecutionOptions>(_ => { });
+
+        services.Configure<ProjectRegistryOptions>(opts =>
+            opts.Projects = []);
+
         services.AddRebelgent();
         services.AddRebelgentPersistence();
+        services.AddRebelgentOrchestration();
+        services.AddRebelgentClaudeCode();
         services.AddRebelgentTelegram();
 
         return services;

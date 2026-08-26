@@ -14,4 +14,13 @@ internal class FakeThrowingTaskService : ITaskService
 
     public Task<IReadOnlyCollection<AgentTask>> GetRecentTasksAsync(int count = 20, CancellationToken cancellationToken = default)
         => throw new InvalidOperationException("Simulated persistence failure.");
+
+    public Task<IReadOnlyCollection<AgentTask>> FindByPrefixAsync(string prefix, int maxResults, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Simulated persistence failure.");
+
+    public Task<AgentTask?> TransitionAsync(Guid id, AgentTaskStatus newStatus, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Simulated persistence failure.");
+
+    public Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Simulated persistence failure.");
 }

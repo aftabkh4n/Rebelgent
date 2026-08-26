@@ -8,6 +8,8 @@
     <ProjectReference Include="..\Rebelgent.Infrastructure\Rebelgent.Infrastructure.csproj" />
     <ProjectReference Include="..\Rebelgent.Persistence\Rebelgent.Persistence.csproj" />
     <ProjectReference Include="..\Rebelgent.Telegram\Rebelgent.Telegram.csproj" />
+    <ProjectReference Include="..\Rebelgent.Orchestration\Rebelgent.Orchestration.csproj" />
+    <ProjectReference Include="..\Rebelgent.ClaudeCode\Rebelgent.ClaudeCode.csproj" />
   </ItemGroup>
 
 </Project>

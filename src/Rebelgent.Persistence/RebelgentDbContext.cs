@@ -8,6 +8,7 @@ public class RebelgentDbContext : DbContext
 {
     internal DbSet<AgentTaskRecord> AgentTasks => Set<AgentTaskRecord>();
     internal DbSet<ApprovalRequestRecord> ApprovalRequests => Set<ApprovalRequestRecord>();
+    internal DbSet<AgentExecutionDbRecord> AgentExecutions => Set<AgentExecutionDbRecord>();
 
     public RebelgentDbContext(DbContextOptions<RebelgentDbContext> options) : base(options) { }
 
@@ -37,6 +38,20 @@ public class RebelgentDbContext : DbContext
             entity.Property(e => e.Description).IsRequired();
             entity.Property(e => e.RequestedAt).IsRequired();
             entity.HasIndex(e => e.TaskId);
+        });
+
+        modelBuilder.Entity<AgentExecutionDbRecord>(entity =>
+        {
+            entity.ToTable("AgentExecutions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ProjectId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.WorkspacePath).IsRequired().HasMaxLength(1000);
+            entity.Property(e => e.BranchName).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.Status).IsRequired();
+            entity.Property(e => e.StartedAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.CompletedAt).HasColumnType("INTEGER");
+            entity.HasIndex(e => e.TaskId);
+            entity.HasIndex(e => e.StartedAt);
         });
     }
 }

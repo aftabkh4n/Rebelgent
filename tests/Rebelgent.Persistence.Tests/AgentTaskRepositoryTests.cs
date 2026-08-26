@@ -121,7 +121,7 @@ public class TaskServiceTests : IDisposable
         _repository = new AgentTaskRepository(_db);
 
         var logger = Microsoft.Extensions.Logging.Abstractions.NullLogger<TaskService>.Instance;
-        _service = new TaskService(_repository, logger);
+        _service = new TaskService(_repository, new TaskLifecycleService(), logger);
     }
 
     public void Dispose() => _db.Dispose();

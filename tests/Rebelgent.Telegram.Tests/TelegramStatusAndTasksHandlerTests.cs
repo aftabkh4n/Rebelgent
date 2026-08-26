@@ -22,7 +22,7 @@ public class TelegramStatusAndTasksHandlerTests
         var auth = new TelegramAuthorizationService(options, NullLogger<TelegramAuthorizationService>.Instance);
         var taskService = new FakeTaskService();
         var sender = new FakeMessageSender();
-        var handler = new TelegramUpdateHandler(taskService, sender, auth, NullLogger<TelegramUpdateHandler>.Instance);
+        var handler = new TelegramUpdateHandler(taskService, sender, auth, new FakeProjectRegistry(), new FakeTaskOrchestrator(), NullLogger<TelegramUpdateHandler>.Instance);
         return (handler, taskService, sender);
     }
 
@@ -33,6 +33,7 @@ public class TelegramStatusAndTasksHandlerTests
         sender = new FakeMessageSender();
         return new TelegramUpdateHandler(
             new FakeThrowingTaskService(), sender, auth,
+            new FakeProjectRegistry(), new FakeTaskOrchestrator(),
             NullLogger<TelegramUpdateHandler>.Instance);
     }
 
