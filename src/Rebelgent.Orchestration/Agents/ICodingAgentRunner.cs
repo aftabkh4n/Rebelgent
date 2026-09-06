@@ -7,4 +7,7 @@ public interface ICodingAgentRunner
     Task<AgentValidationResult> ValidateAsync(CancellationToken cancellationToken = default);
 
     Task<CodingAgentResult> RunAsync(CodingAgentRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>Invokes the agent with an arbitrary prompt in the given workspace. Used by QA and Reviewer agents.</summary>
+    Task<CodingAgentResult> InvokeAsync(string prompt, string workspacePath, int timeoutMs, CancellationToken cancellationToken = default);
 }

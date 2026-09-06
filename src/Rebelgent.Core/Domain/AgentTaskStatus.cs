@@ -10,6 +10,7 @@ public enum AgentTaskStatus
     InProgress,
     Testing,
     Reviewing,
+    AwaitingReview,
     ChangesRequested,
     Completed,
     Failed,

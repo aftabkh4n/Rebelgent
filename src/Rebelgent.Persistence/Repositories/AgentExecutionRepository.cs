@@ -43,4 +43,27 @@ internal class AgentExecutionRepository : IAgentExecutionRepository
 
         return record?.ToDomain();
     }
+
+    public async Task<AgentExecutionRecord?> GetLatestByTaskIdAndRoleAsync(Guid taskId, AgentRole role, CancellationToken cancellationToken = default)
+    {
+        var roleInt = (int)role;
+        var record = await _db.AgentExecutions
+            .AsNoTracking()
+            .Where(e => e.TaskId == taskId && e.Role == roleInt)
+            .OrderByDescending(e => e.StartedAt)
+            .FirstOrDefaultAsync(cancellationToken);
+
+        return record?.ToDomain();
+    }
+
+    public async Task<IReadOnlyList<AgentExecutionRecord>> GetAllByTaskIdAsync(Guid taskId, CancellationToken cancellationToken = default)
+    {
+        var records = await _db.AgentExecutions
+            .AsNoTracking()
+            .Where(e => e.TaskId == taskId)
+            .OrderBy(e => e.StartedAt)
+            .ToListAsync(cancellationToken);
+
+        return records.Select(r => r.ToDomain()).ToList();
+    }
 }

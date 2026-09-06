@@ -217,6 +217,29 @@ public sealed class TaskOrchestrator : ITaskOrchestrator
 
         await UpdateExecutionAsync(execution, cancellationToken);
 
+        // Commit developer changes so QA/Reviewer see the verified state, not uncommitted files
+        if (buildOk && testOk)
+        {
+            var shortId = taskId.ToString("N")[..8];
+            try
+            {
+                var commitSha = await _workspaceManager.CommitAsync(
+                    workspace.WorkspacePath,
+                    $"rebelgent: implement task {shortId}",
+                    cancellationToken);
+                execution.SetCommitSha(commitSha);
+                await UpdateExecutionAsync(execution, cancellationToken);
+                _logger.LogInformation("Developer changes committed as {CommitSha} for task {TaskId}", commitSha, taskId);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to commit developer changes for task {TaskId}", taskId);
+                execution.Fail($"Commit failed: {ex.Message}");
+                await PersistAndFailAsync(execution, taskId, AgentTaskStatus.Testing, cancellationToken);
+                return new OrchestrationResult { Succeeded = false, Summary = "Developer changes could not be committed.", ErrorMessage = ex.Message };
+            }
+        }
+
         // Testing → Reviewing (if all pass) or Testing → Failed
         var finalStatus = buildOk && testOk ? AgentTaskStatus.Reviewing : AgentTaskStatus.Failed;
         using (var scope = _scopeFactory.CreateScope())

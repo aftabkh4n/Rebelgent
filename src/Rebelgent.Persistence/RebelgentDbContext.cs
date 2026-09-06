@@ -47,11 +47,16 @@ public class RebelgentDbContext : DbContext
             entity.Property(e => e.ProjectId).IsRequired().HasMaxLength(200);
             entity.Property(e => e.WorkspacePath).IsRequired().HasMaxLength(1000);
             entity.Property(e => e.BranchName).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.Role).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.Provider).IsRequired().HasMaxLength(100).HasDefaultValue("ClaudeCode");
             entity.Property(e => e.Status).IsRequired();
             entity.Property(e => e.StartedAt).IsRequired().HasColumnType("INTEGER");
             entity.Property(e => e.CompletedAt).HasColumnType("INTEGER");
+            entity.Property(e => e.Findings).HasMaxLength(4000);
+            entity.Property(e => e.CommitSha).HasMaxLength(40);
             entity.HasIndex(e => e.TaskId);
             entity.HasIndex(e => e.StartedAt);
+            entity.HasIndex(e => new { e.TaskId, e.Role });
         });
     }
 }

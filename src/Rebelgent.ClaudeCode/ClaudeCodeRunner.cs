@@ -90,4 +90,32 @@ internal sealed class ClaudeCodeRunner : ICodingAgentRunner
 
         return new CodingAgentResult { Success = true, Output = result.StandardOutput };
     }
+
+    public async Task<CodingAgentResult> InvokeAsync(string prompt, string workspacePath, int timeoutMs, CancellationToken cancellationToken = default)
+    {
+        var executablePath = _options.Value.ExecutablePath;
+
+        _logger.LogInformation("Invoking Claude Code with raw prompt in {WorkspacePath}", workspacePath);
+
+        var result = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = executablePath,
+            Arguments = ["-p", prompt, "--permission-mode", "bypassPermissions", "--output-format", "text"],
+            WorkingDirectory = workspacePath,
+            TimeoutMs = timeoutMs
+        }, cancellationToken);
+
+        if (result.TimedOut)
+            return new CodingAgentResult { Success = false, TimedOut = true, ErrorMessage = "Agent invocation timed out." };
+
+        if (!result.Success)
+            return new CodingAgentResult
+            {
+                Success = false,
+                Output = result.StandardOutput,
+                ErrorMessage = $"Agent exited with code {result.ExitCode}: {result.StandardError}"
+            };
+
+        return new CodingAgentResult { Success = true, Output = result.StandardOutput };
+    }
 }
