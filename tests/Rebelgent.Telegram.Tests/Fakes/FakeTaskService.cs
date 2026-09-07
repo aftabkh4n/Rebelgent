@@ -39,4 +39,7 @@ internal class FakeTaskService : ITaskService
 
     public Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default)
         => Task.FromResult(CreatedTasks.FirstOrDefault(t => t.Id == id));
+
+    public Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int pullRequestNumber, string pullRequestUrl, CancellationToken cancellationToken = default)
+        => Task.FromResult(CreatedTasks.FirstOrDefault(t => t.Id == id));
 }

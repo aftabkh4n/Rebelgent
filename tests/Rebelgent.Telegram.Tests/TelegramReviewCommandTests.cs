@@ -36,7 +36,7 @@ public class TelegramReviewCommandTests
         var executionRepo = new FakeExecutionRepository();
         var handler = new TelegramUpdateHandler(
             taskService, sender, auth, projectRegistry, orchestrator,
-            qualityOrchestrator, executionRepo,
+            qualityOrchestrator, new FakePullRequestOrchestrator(), executionRepo,
             NullLogger<TelegramUpdateHandler>.Instance);
         return (handler, taskService, sender, qualityOrchestrator, executionRepo);
     }

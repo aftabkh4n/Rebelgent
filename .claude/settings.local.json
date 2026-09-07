@@ -16,7 +16,18 @@
       "Bash(git -C D:\\\\Projects\\\\Rebelgent branch)",
       "Bash(Stop-Process -Id 1756 -Force -ErrorAction SilentlyContinue)",
       "Bash(Start-Sleep -Seconds 1)",
-      "PowerShell(Stop-Process *)"
+      "PowerShell(Stop-Process *)",
+      "Bash(git worktree *)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(xargs grep -l \"IProcessRunner\\\\|ProcessRunner\")",
+      "Bash(xargs grep -l \"AddRebelgent\")",
+      "Bash(Stop-Process -Id 20812 -Force)",
+      "Bash(Get-Process -Id 20812 -ErrorAction SilentlyContinue)",
+      "Bash(Stop-Process -Force)",
+      "Bash(Start-Sleep -Seconds 2)",
+      "Bash(Select-Object -Property Id,Name)",
+      "Bash(taskkill /PID 20812 /F)",
+      "Bash(cmd /c \"taskkill /PID 20812 /F\")"
     ]
   }
 }

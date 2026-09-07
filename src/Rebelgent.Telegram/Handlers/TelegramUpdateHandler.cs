@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using Rebelgent.Core.Domain;
 using Rebelgent.Core.Repositories;
 using Rebelgent.Core.Services;
+using Rebelgent.GitHub;
 using Rebelgent.Orchestration.Orchestrator;
 using Rebelgent.Orchestration.Projects;
 using Rebelgent.Telegram.Authorization;
@@ -25,6 +26,7 @@ public class TelegramUpdateHandler
     private readonly IProjectRegistry _projectRegistry;
     private readonly ITaskOrchestrator _orchestrator;
     private readonly IQualityOrchestrator _qualityOrchestrator;
+    private readonly IPullRequestOrchestrator _pullRequestOrchestrator;
     private readonly IAgentExecutionRepository _executionRepository;
     private readonly ILogger<TelegramUpdateHandler> _logger;
 
@@ -35,6 +37,7 @@ public class TelegramUpdateHandler
         IProjectRegistry projectRegistry,
         ITaskOrchestrator orchestrator,
         IQualityOrchestrator qualityOrchestrator,
+        IPullRequestOrchestrator pullRequestOrchestrator,
         IAgentExecutionRepository executionRepository,
         ILogger<TelegramUpdateHandler> logger)
     {
@@ -44,6 +47,7 @@ public class TelegramUpdateHandler
         _projectRegistry = projectRegistry;
         _orchestrator = orchestrator;
         _qualityOrchestrator = qualityOrchestrator;
+        _pullRequestOrchestrator = pullRequestOrchestrator;
         _executionRepository = executionRepository;
         _logger = logger;
     }
@@ -94,7 +98,9 @@ public class TelegramUpdateHandler
                     "/taskinfo <taskId> — show task details\n" +
                     "/review <taskId> — trigger QA and code review pipeline\n" +
                     "/review <taskId> <approve|reject|rerun> — human decision after review\n" +
-                    "/reviews <taskId> — show QA and review findings for a task\n\n" +
+                    "/reviews <taskId> — show QA and review findings for a task\n" +
+                    "/pr <taskId> — push developer branch and create GitHub pull request\n" +
+                    "/prinfo <taskId> — show pull request info for a task\n\n" +
                     "To create a task with the default project, send any non-command message.",
                     cancellationToken);
                 break;
@@ -129,6 +135,14 @@ public class TelegramUpdateHandler
 
             case "/reviews":
                 await HandleReviewsCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/pr":
+                await HandlePrCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/prinfo":
+                await HandlePrInfoCommandAsync(chatId, rawText, cancellationToken);
                 break;
 
             default:
@@ -522,6 +536,95 @@ public class TelegramUpdateHandler
             _logger.LogError(ex, "Failed to retrieve executions for task prefix {Prefix}", prefix);
             await _sender.SendTextAsync(chatId, "Unable to retrieve execution history right now.", cancellationToken);
         }
+    }
+
+    private async Task HandlePrCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /pr <taskId>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        await _sender.SendTextAsync(chatId,
+            $"Creating pull request for task [{task.Id.ToString("N")[..8]}] {task.Title}...\n" +
+            "You will receive a result when it completes.",
+            cancellationToken);
+
+        var taskId = task.Id;
+        var orchestrator = _pullRequestOrchestrator;
+        var sender = _sender;
+        var logger = _logger;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await orchestrator.RunAsync(taskId, CancellationToken.None);
+                var symbol = result.Succeeded ? "✅" : "❌";
+                await sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unhandled exception during PR creation for task {TaskId}", taskId);
+                await sender.SendTextAsync(chatId, "An unexpected error occurred during PR creation.", CancellationToken.None);
+            }
+        });
+    }
+
+    private async Task HandlePrInfoCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /prinfo <taskId>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        var shortId = task.Id.ToString("N")[..8];
+
+        if (task.PullRequestNumber is null)
+        {
+            await _sender.SendTextAsync(chatId,
+                $"Task [{shortId}] {task.Title}\nNo pull request created yet. Use /pr {shortId} to create one.",
+                cancellationToken);
+            return;
+        }
+
+        await _sender.SendTextAsync(chatId,
+            $"Task [{shortId}] {task.Title}\n" +
+            $"PR #{task.PullRequestNumber}: {task.PullRequestUrl}\n" +
+            $"Created: {task.PullRequestCreatedAt:yyyy-MM-dd HH:mm} UTC",
+            cancellationToken);
     }
 
     private async Task HandleTaskRequestAsync(long chatId, string text, CancellationToken cancellationToken)

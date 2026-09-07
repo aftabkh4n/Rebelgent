@@ -14,4 +14,10 @@ public sealed class ProjectDefinition
 
     /// <summary>The default branch to create agent worktrees from (e.g. "main").</summary>
     public string DefaultBranch { get; set; } = "main";
+
+    /// <summary>Git remote name to push agent branches to (e.g. "origin").</summary>
+    public string RemoteName { get; set; } = "origin";
+
+    /// <summary>GitHub repository in owner/repo format (e.g. "myorg/myrepo"). Optional — required for PR creation.</summary>
+    public string? GitHubRepository { get; set; }
 }
