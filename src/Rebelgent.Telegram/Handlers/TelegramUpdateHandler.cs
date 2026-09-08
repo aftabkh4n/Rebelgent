@@ -27,6 +27,7 @@ public class TelegramUpdateHandler
     private readonly ITaskOrchestrator _orchestrator;
     private readonly IQualityOrchestrator _qualityOrchestrator;
     private readonly IPullRequestOrchestrator _pullRequestOrchestrator;
+    private readonly IMergeOrchestrator _mergeOrchestrator;
     private readonly IAgentExecutionRepository _executionRepository;
     private readonly ILogger<TelegramUpdateHandler> _logger;
 
@@ -38,6 +39,7 @@ public class TelegramUpdateHandler
         ITaskOrchestrator orchestrator,
         IQualityOrchestrator qualityOrchestrator,
         IPullRequestOrchestrator pullRequestOrchestrator,
+        IMergeOrchestrator mergeOrchestrator,
         IAgentExecutionRepository executionRepository,
         ILogger<TelegramUpdateHandler> logger)
     {
@@ -48,6 +50,7 @@ public class TelegramUpdateHandler
         _orchestrator = orchestrator;
         _qualityOrchestrator = qualityOrchestrator;
         _pullRequestOrchestrator = pullRequestOrchestrator;
+        _mergeOrchestrator = mergeOrchestrator;
         _executionRepository = executionRepository;
         _logger = logger;
     }
@@ -100,7 +103,9 @@ public class TelegramUpdateHandler
                     "/review <taskId> <approve|reject|rerun> — human decision after review\n" +
                     "/reviews <taskId> — show QA and review findings for a task\n" +
                     "/pr <taskId> — push developer branch and create GitHub pull request\n" +
-                    "/prinfo <taskId> — show pull request info for a task\n\n" +
+                    "/prinfo <taskId> — show pull request info for a task\n" +
+                    "/merge <taskId> — merge the pull request for a task\n" +
+                    "/mergeinfo <taskId> — show merge info for a task\n\n" +
                     "To create a task with the default project, send any non-command message.",
                     cancellationToken);
                 break;
@@ -143,6 +148,14 @@ public class TelegramUpdateHandler
 
             case "/prinfo":
                 await HandlePrInfoCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/merge":
+                await HandleMergeCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/mergeinfo":
+                await HandleMergeInfoCommandAsync(chatId, rawText, cancellationToken);
                 break;
 
             default:
@@ -624,6 +637,96 @@ public class TelegramUpdateHandler
             $"Task [{shortId}] {task.Title}\n" +
             $"PR #{task.PullRequestNumber}: {task.PullRequestUrl}\n" +
             $"Created: {task.PullRequestCreatedAt:yyyy-MM-dd HH:mm} UTC",
+            cancellationToken);
+    }
+
+    private async Task HandleMergeCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /merge <taskId>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        await _sender.SendTextAsync(chatId,
+            $"Merging pull request for task [{task.Id.ToString("N")[..8]}] {task.Title}...\n" +
+            "You will receive a result when it completes.",
+            cancellationToken);
+
+        var taskId = task.Id;
+        var orchestrator = _mergeOrchestrator;
+        var sender = _sender;
+        var logger = _logger;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await orchestrator.RunAsync(taskId, CancellationToken.None);
+                var symbol = result.Succeeded ? "✅" : "❌";
+                await sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unhandled exception during merge for task {TaskId}", taskId);
+                await sender.SendTextAsync(chatId, "An unexpected error occurred during merge.", CancellationToken.None);
+            }
+        });
+    }
+
+    private async Task HandleMergeInfoCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /mergeinfo <taskId>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        var shortId = task.Id.ToString("N")[..8];
+
+        if (task.MergeCommitSha is null)
+        {
+            await _sender.SendTextAsync(chatId,
+                $"Task [{shortId}] {task.Title}\nNot yet merged. Use /merge {shortId} to merge the pull request.",
+                cancellationToken);
+            return;
+        }
+
+        await _sender.SendTextAsync(chatId,
+            $"Task [{shortId}] {task.Title}\n" +
+            $"Merge method: {task.MergeMethod}\n" +
+            $"Commit: {task.MergeCommitSha}\n" +
+            $"Merged: {task.MergedAt:yyyy-MM-dd HH:mm} UTC",
             cancellationToken);
     }
 

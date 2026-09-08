@@ -42,4 +42,7 @@ internal class FakeTaskService : ITaskService
 
     public Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int pullRequestNumber, string pullRequestUrl, CancellationToken cancellationToken = default)
         => Task.FromResult(CreatedTasks.FirstOrDefault(t => t.Id == id));
+
+    public Task<AgentTask?> SetMergeInfoAsync(Guid id, string mergeCommitSha, string mergeMethod, CancellationToken cancellationToken = default)
+        => Task.FromResult(CreatedTasks.FirstOrDefault(t => t.Id == id));
 }

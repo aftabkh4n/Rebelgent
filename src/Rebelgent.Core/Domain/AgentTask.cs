@@ -17,6 +17,9 @@ public class AgentTask
     public int? PullRequestNumber { get; private set; }
     public string? PullRequestUrl { get; private set; }
     public DateTimeOffset? PullRequestCreatedAt { get; private set; }
+    public DateTimeOffset? MergedAt { get; private set; }
+    public string? MergeCommitSha { get; private set; }
+    public string? MergeMethod { get; private set; }
 
     public AgentTask(
         string projectId,
@@ -60,7 +63,10 @@ public class AgentTask
         string? branchName,
         int? pullRequestNumber,
         string? pullRequestUrl = null,
-        DateTimeOffset? pullRequestCreatedAt = null)
+        DateTimeOffset? pullRequestCreatedAt = null,
+        DateTimeOffset? mergedAt = null,
+        string? mergeCommitSha = null,
+        string? mergeMethod = null)
     {
         return new AgentTask
         {
@@ -77,7 +83,10 @@ public class AgentTask
             BranchName = branchName,
             PullRequestNumber = pullRequestNumber,
             PullRequestUrl = pullRequestUrl,
-            PullRequestCreatedAt = pullRequestCreatedAt
+            PullRequestCreatedAt = pullRequestCreatedAt,
+            MergedAt = mergedAt,
+            MergeCommitSha = mergeCommitSha,
+            MergeMethod = mergeMethod
         };
     }
 
@@ -123,5 +132,16 @@ public class AgentTask
         PullRequestNumber = number;
         PullRequestUrl = url;
         PullRequestCreatedAt = DateTimeOffset.UtcNow;
+    }
+
+    public void SetMergeInfo(string mergeCommitSha, string mergeMethod)
+    {
+        if (string.IsNullOrWhiteSpace(mergeCommitSha))
+            throw new ArgumentException("Merge commit SHA cannot be empty.", nameof(mergeCommitSha));
+        if (string.IsNullOrWhiteSpace(mergeMethod))
+            throw new ArgumentException("Merge method cannot be empty.", nameof(mergeMethod));
+        MergeCommitSha = mergeCommitSha;
+        MergeMethod = mergeMethod;
+        MergedAt = DateTimeOffset.UtcNow;
     }
 }

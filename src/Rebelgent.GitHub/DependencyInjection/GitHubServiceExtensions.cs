@@ -9,6 +9,8 @@ public static class GitHubServiceExtensions
     {
         services.AddSingleton<IPullRequestService, GitHubCliPullRequestService>();
         services.AddSingleton<IPullRequestOrchestrator, PullRequestOrchestrator>();
+        services.AddSingleton<IPullRequestMergeService, GitHubCliPullRequestMergeService>();
+        services.AddSingleton<IMergeOrchestrator, MergeOrchestrator>();
 
         return services;
     }

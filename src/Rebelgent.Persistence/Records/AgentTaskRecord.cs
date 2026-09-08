@@ -25,6 +25,9 @@ internal class AgentTaskRecord
     public int? PullRequestNumber { get; set; }
     public string? PullRequestUrl { get; set; }
     public long? PullRequestCreatedAt { get; set; }
+    public long? MergedAt { get; set; }
+    public string? MergeCommitSha { get; set; }
+    public string? MergeMethod { get; set; }
 
     public static AgentTaskRecord FromDomain(AgentTask task) => new()
     {
@@ -41,7 +44,10 @@ internal class AgentTaskRecord
         BranchName = task.BranchName,
         PullRequestNumber = task.PullRequestNumber,
         PullRequestUrl = task.PullRequestUrl,
-        PullRequestCreatedAt = task.PullRequestCreatedAt?.UtcTicks
+        PullRequestCreatedAt = task.PullRequestCreatedAt?.UtcTicks,
+        MergedAt = task.MergedAt?.UtcTicks,
+        MergeCommitSha = task.MergeCommitSha,
+        MergeMethod = task.MergeMethod
     };
 
     public AgentTask ToDomain() => AgentTask.Reconstitute(
@@ -52,5 +58,8 @@ internal class AgentTaskRecord
         CompletedAt.HasValue ? new DateTimeOffset(CompletedAt.Value, TimeSpan.Zero) : null,
         BranchName, PullRequestNumber,
         PullRequestUrl,
-        PullRequestCreatedAt.HasValue ? new DateTimeOffset(PullRequestCreatedAt.Value, TimeSpan.Zero) : null);
+        PullRequestCreatedAt.HasValue ? new DateTimeOffset(PullRequestCreatedAt.Value, TimeSpan.Zero) : null,
+        MergedAt.HasValue ? new DateTimeOffset(MergedAt.Value, TimeSpan.Zero) : null,
+        MergeCommitSha,
+        MergeMethod);
 }

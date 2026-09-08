@@ -30,6 +30,9 @@ public class RebelgentDbContext : DbContext
             entity.Property(e => e.BranchName).HasMaxLength(500);
             entity.Property(e => e.PullRequestUrl).HasMaxLength(500);
             entity.Property(e => e.PullRequestCreatedAt).HasColumnType("INTEGER");
+            entity.Property(e => e.MergedAt).HasColumnType("INTEGER");
+            entity.Property(e => e.MergeCommitSha).HasMaxLength(40);
+            entity.Property(e => e.MergeMethod).HasMaxLength(50);
             entity.HasIndex(e => e.CreatedAt);
         });
 

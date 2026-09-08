@@ -89,4 +89,16 @@ public class TaskService : ITaskService
         _logger.LogInformation("Task {TaskId} PR #{PrNumber} created: {PrUrl}", id, pullRequestNumber, pullRequestUrl);
         return task;
     }
+
+    public async Task<AgentTask?> SetMergeInfoAsync(Guid id, string mergeCommitSha, string mergeMethod, CancellationToken cancellationToken = default)
+    {
+        var task = await _repository.GetByIdAsync(id, cancellationToken);
+        if (task is null) return null;
+
+        task.SetMergeInfo(mergeCommitSha, mergeMethod);
+        await _repository.UpdateAsync(task, cancellationToken);
+
+        _logger.LogInformation("Task {TaskId} merged via {MergeMethod} at {CommitSha}", id, mergeMethod, mergeCommitSha);
+        return task;
+    }
 }
