@@ -47,18 +47,7 @@ internal sealed class GitWorkspaceManager : IWorkspaceManager
         if (!gitCheckResult.Success)
             throw new InvalidOperationException($"'{project.RepositoryPath}' is not a git repository.");
 
-        // Pre-flight 3: default branch exists
-        var branchCheckResult = await _processRunner.RunAsync(new ProcessRunOptions
-        {
-            FileName = "git",
-            Arguments = ["rev-parse", "--verify", project.DefaultBranch],
-            WorkingDirectory = project.RepositoryPath,
-            TimeoutMs = 10_000
-        }, cancellationToken);
-        if (!branchCheckResult.Success)
-            throw new InvalidOperationException($"Branch '{project.DefaultBranch}' does not exist in '{project.RepositoryPath}'.");
-
-        // Pre-flight 4: source working tree is clean — refuse if dirty
+        // Pre-flight 3: source working tree is clean — refuse before any network ops
         var statusResult = await _processRunner.RunAsync(new ProcessRunOptions
         {
             FileName = "git",
@@ -72,6 +61,30 @@ internal sealed class GitWorkspaceManager : IWorkspaceManager
             throw new InvalidOperationException(
                 $"Source repository '{project.RepositoryPath}' has uncommitted changes. Stash or commit changes before running an agent.");
 
+        // Pre-flight 4: fetch from remote so the task branch is always based on the latest remote state,
+        // not a potentially stale local copy of the default branch.
+        var fetchResult = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["fetch", project.RemoteName],
+            WorkingDirectory = project.RepositoryPath,
+            TimeoutMs = 60_000
+        }, cancellationToken);
+        if (!fetchResult.Success)
+            throw new InvalidOperationException($"git fetch {project.RemoteName} failed: {fetchResult.StandardError}");
+
+        // Pre-flight 5: remote default branch must exist after fetch
+        var remoteRef = $"{project.RemoteName}/{project.DefaultBranch}";
+        var remoteBranchCheckResult = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["rev-parse", "--verify", remoteRef],
+            WorkingDirectory = project.RepositoryPath,
+            TimeoutMs = 10_000
+        }, cancellationToken);
+        if (!remoteBranchCheckResult.Success)
+            throw new InvalidOperationException($"Remote branch '{remoteRef}' does not exist in '{project.RepositoryPath}'.");
+
         var shortId = taskId.ToString("N")[..8];
         var branchName = $"rebelgent/task-{shortId}";
         var workspacePath = Path.Combine(root, $"{project.Id}-{shortId}-developer");
@@ -82,16 +95,16 @@ internal sealed class GitWorkspaceManager : IWorkspaceManager
         if (!canonicalWorkspace.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"Workspace path '{workspacePath}' is outside configured root '{root}'.");
 
-        // Pre-flight 5: workspace directory must not already exist
+        // Pre-flight 6: workspace directory must not already exist
         if (Directory.Exists(workspacePath))
             throw new InvalidOperationException($"Workspace directory already exists: '{workspacePath}'. Remove it manually before re-running.");
 
-        _logger.LogInformation("Creating git worktree at {WorkspacePath} for branch {Branch}", workspacePath, branchName);
+        _logger.LogInformation("Creating git worktree at {WorkspacePath} from {RemoteRef} for branch {Branch}", workspacePath, remoteRef, branchName);
 
         var result = await _processRunner.RunAsync(new ProcessRunOptions
         {
             FileName = "git",
-            Arguments = ["worktree", "add", workspacePath, "-b", branchName, project.DefaultBranch],
+            Arguments = ["worktree", "add", workspacePath, "-b", branchName, remoteRef],
             WorkingDirectory = project.RepositoryPath,
             TimeoutMs = 30_000
         }, cancellationToken);
