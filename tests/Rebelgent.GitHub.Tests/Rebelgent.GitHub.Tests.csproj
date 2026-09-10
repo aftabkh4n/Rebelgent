@@ -20,6 +20,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Rebelgent.GitHub\Rebelgent.GitHub.csproj" />
+    <ProjectReference Include="..\..\src\Rebelgent.ClaudeCode\Rebelgent.ClaudeCode.csproj" />
     <ProjectReference Include="..\..\src\Rebelgent.Core\Rebelgent.Core.csproj" />
     <ProjectReference Include="..\..\src\Rebelgent.Orchestration\Rebelgent.Orchestration.csproj" />
   </ItemGroup>
