@@ -26,7 +26,7 @@ public class TelegramUpdateHandlerTests
         var projectRegistry = new FakeProjectRegistry(projects);
         var orchestrator = new FakeTaskOrchestrator();
         var handler = new TelegramUpdateHandler(taskService, sender, auth, projectRegistry, orchestrator,
-            new FakeQualityOrchestrator(), new FakePullRequestOrchestrator(), new FakeMergeOrchestrator(), new FakeReleaseOrchestrator(), new FakeExecutionRepository(), NullLogger<TelegramUpdateHandler>.Instance);
+            new FakeQualityOrchestrator(), new FakePullRequestOrchestrator(), new FakeMergeOrchestrator(), new FakeReleaseOrchestrator(), new FakePackageOrchestrator(), new FakeExecutionRepository(), NullLogger<TelegramUpdateHandler>.Instance);
         return (handler, taskService, sender);
     }
 

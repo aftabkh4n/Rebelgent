@@ -10,6 +10,7 @@ public class RebelgentDbContext : DbContext
     internal DbSet<ApprovalRequestRecord> ApprovalRequests => Set<ApprovalRequestRecord>();
     internal DbSet<AgentExecutionDbRecord> AgentExecutions => Set<AgentExecutionDbRecord>();
     internal DbSet<ReleaseDbRecord> Releases => Set<ReleaseDbRecord>();
+    internal DbSet<PackageDbRecord> Packages => Set<PackageDbRecord>();
 
     public RebelgentDbContext(DbContextOptions<RebelgentDbContext> options) : base(options) { }
 
@@ -51,6 +52,20 @@ public class RebelgentDbContext : DbContext
             entity.Property(e => e.CreatedAt).IsRequired().HasColumnType("INTEGER");
             entity.Property(e => e.PublishedAt).HasColumnType("INTEGER");
             entity.Property(e => e.MergeCommitSha).IsRequired().HasMaxLength(40);
+            entity.HasIndex(e => e.TaskId).IsUnique();
+        });
+
+        modelBuilder.Entity<PackageDbRecord>(entity =>
+        {
+            entity.ToTable("Packages");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TaskId).IsRequired();
+            entity.Property(e => e.PackageId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.PackageVersion).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.PackagePath).IsRequired().HasMaxLength(1000);
+            entity.Property(e => e.Status).IsRequired();
+            entity.Property(e => e.PreparedAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.PublishedAt).HasColumnType("INTEGER");
             entity.HasIndex(e => e.TaskId).IsUnique();
         });
 

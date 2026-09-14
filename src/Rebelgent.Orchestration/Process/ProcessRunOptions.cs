@@ -13,4 +13,11 @@ public sealed class ProcessRunOptions
 
     /// <summary>Milliseconds before the process is killed. Default: 60 000 ms.</summary>
     public int TimeoutMs { get; init; } = 60_000;
+
+    /// <summary>
+    /// Zero-based indices of <see cref="Arguments"/> entries that contain secrets (e.g. API keys).
+    /// The actual argument values are passed to the process unchanged.
+    /// Only the debug-log entry is replaced with "***" at these positions.
+    /// </summary>
+    public IReadOnlyCollection<int> SecretArgumentIndices { get; init; } = [];
 }

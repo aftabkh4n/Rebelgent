@@ -20,4 +20,17 @@ public sealed class ProjectDefinition
 
     /// <summary>GitHub repository in owner/repo format (e.g. "myorg/myrepo"). Optional — required for PR creation.</summary>
     public string? GitHubRepository { get; set; }
+
+    /// <summary>
+    /// Relative or absolute path to the .csproj or .sln to pack for NuGet publishing.
+    /// Null means dotnet pack runs at <see cref="RepositoryPath"/> and discovers the project automatically.
+    /// </summary>
+    public string? PackageProjectPath { get; set; }
+
+    /// <summary>
+    /// The NuGet package ID produced by this project (e.g. "Rebelgent.Core").
+    /// Used to disambiguate when multiple .nupkg files exist in the output directory.
+    /// Optional — required only when a project produces multiple packages.
+    /// </summary>
+    public string? NuGetPackageId { get; set; }
 }

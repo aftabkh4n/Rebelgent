@@ -44,7 +44,7 @@ builder.Services.AddRebelgentOrchestration();
 builder.Services.AddRebelgentClaudeCode();
 
 // GitHub PR service (uses gh CLI)
-builder.Services.AddRebelgentGitHub();
+builder.Services.AddRebelgentGitHub(builder.Configuration);
 
 // Telegram bot (conditional on configuration)
 builder.Services.AddRebelgentTelegram();

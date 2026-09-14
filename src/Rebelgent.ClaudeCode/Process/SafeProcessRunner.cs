@@ -35,7 +35,10 @@ internal sealed class SafeProcessRunner : IProcessRunner
         if (options.WorkingDirectory is not null)
             psi.WorkingDirectory = options.WorkingDirectory;
 
-        _logger.LogDebug("Running: {FileName} {Args}", options.FileName, string.Join(" ", options.Arguments));
+        var argsForLog = options.SecretArgumentIndices.Count == 0
+            ? (IEnumerable<string>)options.Arguments
+            : options.Arguments.Select((a, i) => options.SecretArgumentIndices.Contains(i) ? "***" : a);
+        _logger.LogDebug("Running: {FileName} {Args}", options.FileName, string.Join(" ", argsForLog));
 
         var stdoutBuilder = new StringBuilder();
         var stderrBuilder = new StringBuilder();

@@ -22,6 +22,7 @@ public static class PersistenceServiceExtensions
         services.AddScoped<IAgentTaskRepository, AgentTaskRepository>();
         services.AddScoped<IAgentExecutionRepository, AgentExecutionRepository>();
         services.AddScoped<IReleaseRepository, EfReleaseRepository>();
+        services.AddScoped<IPackageRepository, EfPackageRepository>();
 
         return services;
     }
