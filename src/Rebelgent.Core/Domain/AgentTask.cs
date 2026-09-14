@@ -15,6 +15,8 @@ public class AgentTask
     public DateTimeOffset? CompletedAt { get; private set; }
     public string? BranchName { get; private set; }
     public int? PullRequestNumber { get; private set; }
+    public string? PullRequestUrl { get; private set; }
+    public DateTimeOffset? PullRequestCreatedAt { get; private set; }
 
     public AgentTask(
         string projectId,
@@ -56,7 +58,9 @@ public class AgentTask
         DateTimeOffset? startedAt,
         DateTimeOffset? completedAt,
         string? branchName,
-        int? pullRequestNumber)
+        int? pullRequestNumber,
+        string? pullRequestUrl = null,
+        DateTimeOffset? pullRequestCreatedAt = null)
     {
         return new AgentTask
         {
@@ -71,7 +75,9 @@ public class AgentTask
             StartedAt = startedAt,
             CompletedAt = completedAt,
             BranchName = branchName,
-            PullRequestNumber = pullRequestNumber
+            PullRequestNumber = pullRequestNumber,
+            PullRequestUrl = pullRequestUrl,
+            PullRequestCreatedAt = pullRequestCreatedAt
         };
     }
 
@@ -106,5 +112,16 @@ public class AgentTask
         if (number <= 0)
             throw new ArgumentOutOfRangeException(nameof(number), "Pull request number must be positive.");
         PullRequestNumber = number;
+    }
+
+    public void SetPullRequestInfo(int number, string url)
+    {
+        if (number <= 0)
+            throw new ArgumentOutOfRangeException(nameof(number), "Pull request number must be positive.");
+        if (string.IsNullOrWhiteSpace(url))
+            throw new ArgumentException("Pull request URL cannot be empty.", nameof(url));
+        PullRequestNumber = number;
+        PullRequestUrl = url;
+        PullRequestCreatedAt = DateTimeOffset.UtcNow;
     }
 }

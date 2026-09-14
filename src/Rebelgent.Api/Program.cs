@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Rebelgent.ClaudeCode.DependencyInjection;
 using Rebelgent.ClaudeCode.Options;
+using Rebelgent.GitHub.DependencyInjection;
 using Rebelgent.Contracts.Requests;
 using Rebelgent.Contracts.Responses;
 using Rebelgent.Core.Domain;
@@ -41,6 +42,9 @@ builder.Services.AddRebelgentOrchestration();
 
 // Claude Code process runner and agent runner
 builder.Services.AddRebelgentClaudeCode();
+
+// GitHub PR service (uses gh CLI)
+builder.Services.AddRebelgentGitHub();
 
 // Telegram bot (conditional on configuration)
 builder.Services.AddRebelgentTelegram();

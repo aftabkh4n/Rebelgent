@@ -28,6 +28,8 @@ public class RebelgentDbContext : DbContext
             entity.Property(e => e.StartedAt).HasColumnType("INTEGER");
             entity.Property(e => e.CompletedAt).HasColumnType("INTEGER");
             entity.Property(e => e.BranchName).HasMaxLength(500);
+            entity.Property(e => e.PullRequestUrl).HasMaxLength(500);
+            entity.Property(e => e.PullRequestCreatedAt).HasColumnType("INTEGER");
             entity.HasIndex(e => e.CreatedAt);
         });
 

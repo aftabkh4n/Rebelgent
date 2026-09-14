@@ -16,4 +16,6 @@ public interface ITaskService
     Task<AgentTask?> TransitionAsync(Guid id, AgentTaskStatus newStatus, CancellationToken cancellationToken = default);
 
     Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default);
+
+    Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int pullRequestNumber, string pullRequestUrl, CancellationToken cancellationToken = default);
 }

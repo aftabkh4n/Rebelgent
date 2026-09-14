@@ -77,4 +77,16 @@ public class TaskService : ITaskService
 
         return task;
     }
+
+    public async Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int pullRequestNumber, string pullRequestUrl, CancellationToken cancellationToken = default)
+    {
+        var task = await _repository.GetByIdAsync(id, cancellationToken);
+        if (task is null) return null;
+
+        task.SetPullRequestInfo(pullRequestNumber, pullRequestUrl);
+        await _repository.UpdateAsync(task, cancellationToken);
+
+        _logger.LogInformation("Task {TaskId} PR #{PrNumber} created: {PrUrl}", id, pullRequestNumber, pullRequestUrl);
+        return task;
+    }
 }

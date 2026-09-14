@@ -23,6 +23,8 @@ internal class AgentTaskRecord
     public long? CompletedAt { get; set; }
     public string? BranchName { get; set; }
     public int? PullRequestNumber { get; set; }
+    public string? PullRequestUrl { get; set; }
+    public long? PullRequestCreatedAt { get; set; }
 
     public static AgentTaskRecord FromDomain(AgentTask task) => new()
     {
@@ -37,7 +39,9 @@ internal class AgentTaskRecord
         StartedAt = task.StartedAt?.UtcTicks,
         CompletedAt = task.CompletedAt?.UtcTicks,
         BranchName = task.BranchName,
-        PullRequestNumber = task.PullRequestNumber
+        PullRequestNumber = task.PullRequestNumber,
+        PullRequestUrl = task.PullRequestUrl,
+        PullRequestCreatedAt = task.PullRequestCreatedAt?.UtcTicks
     };
 
     public AgentTask ToDomain() => AgentTask.Reconstitute(
@@ -46,5 +50,7 @@ internal class AgentTaskRecord
         new DateTimeOffset(CreatedAt, TimeSpan.Zero),
         StartedAt.HasValue ? new DateTimeOffset(StartedAt.Value, TimeSpan.Zero) : null,
         CompletedAt.HasValue ? new DateTimeOffset(CompletedAt.Value, TimeSpan.Zero) : null,
-        BranchName, PullRequestNumber);
+        BranchName, PullRequestNumber,
+        PullRequestUrl,
+        PullRequestCreatedAt.HasValue ? new DateTimeOffset(PullRequestCreatedAt.Value, TimeSpan.Zero) : null);
 }

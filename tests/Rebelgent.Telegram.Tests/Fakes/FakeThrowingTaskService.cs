@@ -23,4 +23,7 @@ internal class FakeThrowingTaskService : ITaskService
 
     public Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default)
         => throw new InvalidOperationException("Simulated persistence failure.");
+
+    public Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int pullRequestNumber, string pullRequestUrl, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Simulated persistence failure.");
 }
