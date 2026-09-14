@@ -9,6 +9,7 @@ public class RebelgentDbContext : DbContext
     internal DbSet<AgentTaskRecord> AgentTasks => Set<AgentTaskRecord>();
     internal DbSet<ApprovalRequestRecord> ApprovalRequests => Set<ApprovalRequestRecord>();
     internal DbSet<AgentExecutionDbRecord> AgentExecutions => Set<AgentExecutionDbRecord>();
+    internal DbSet<ReleaseDbRecord> Releases => Set<ReleaseDbRecord>();
 
     public RebelgentDbContext(DbContextOptions<RebelgentDbContext> options) : base(options) { }
 
@@ -34,6 +35,23 @@ public class RebelgentDbContext : DbContext
             entity.Property(e => e.MergeCommitSha).HasMaxLength(40);
             entity.Property(e => e.MergeMethod).HasMaxLength(50);
             entity.HasIndex(e => e.CreatedAt);
+        });
+
+        modelBuilder.Entity<ReleaseDbRecord>(entity =>
+        {
+            entity.ToTable("Releases");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TaskId).IsRequired();
+            entity.Property(e => e.Version).IsRequired().HasMaxLength(20);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.Notes).IsRequired();
+            entity.Property(e => e.Status).IsRequired();
+            entity.Property(e => e.TagName).IsRequired().HasMaxLength(30);
+            entity.Property(e => e.GitHubReleaseUrl).HasMaxLength(500);
+            entity.Property(e => e.CreatedAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.PublishedAt).HasColumnType("INTEGER");
+            entity.Property(e => e.MergeCommitSha).IsRequired().HasMaxLength(40);
+            entity.HasIndex(e => e.TaskId).IsUnique();
         });
 
         modelBuilder.Entity<ApprovalRequestRecord>(entity =>

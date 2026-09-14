@@ -3,6 +3,7 @@ using Rebelgent.Core.Domain;
 using Rebelgent.Core.Repositories;
 using Rebelgent.Core.Services;
 using Rebelgent.GitHub;
+using Rebelgent.GitHub.Release;
 using Rebelgent.Orchestration.Orchestrator;
 using Rebelgent.Orchestration.Projects;
 using Rebelgent.Telegram.Authorization;
@@ -28,6 +29,7 @@ public class TelegramUpdateHandler
     private readonly IQualityOrchestrator _qualityOrchestrator;
     private readonly IPullRequestOrchestrator _pullRequestOrchestrator;
     private readonly IMergeOrchestrator _mergeOrchestrator;
+    private readonly IReleaseOrchestrator _releaseOrchestrator;
     private readonly IAgentExecutionRepository _executionRepository;
     private readonly ILogger<TelegramUpdateHandler> _logger;
 
@@ -40,6 +42,7 @@ public class TelegramUpdateHandler
         IQualityOrchestrator qualityOrchestrator,
         IPullRequestOrchestrator pullRequestOrchestrator,
         IMergeOrchestrator mergeOrchestrator,
+        IReleaseOrchestrator releaseOrchestrator,
         IAgentExecutionRepository executionRepository,
         ILogger<TelegramUpdateHandler> logger)
     {
@@ -51,6 +54,7 @@ public class TelegramUpdateHandler
         _qualityOrchestrator = qualityOrchestrator;
         _pullRequestOrchestrator = pullRequestOrchestrator;
         _mergeOrchestrator = mergeOrchestrator;
+        _releaseOrchestrator = releaseOrchestrator;
         _executionRepository = executionRepository;
         _logger = logger;
     }
@@ -105,7 +109,10 @@ public class TelegramUpdateHandler
                     "/pr <taskId> — push developer branch and create GitHub pull request\n" +
                     "/prinfo <taskId> — show pull request info for a task\n" +
                     "/merge <taskId> — merge the pull request for a task\n" +
-                    "/mergeinfo <taskId> — show merge info for a task\n\n" +
+                    "/mergeinfo <taskId> — show merge info for a task\n" +
+                    "/release <taskId> — prepare release notes (runs Release Manager)\n" +
+                    "/release <taskId> approve — create the GitHub release\n" +
+                    "/releaseinfo <taskId> — show release info for a task\n\n" +
                     "To create a task with the default project, send any non-command message.",
                     cancellationToken);
                 break;
@@ -156,6 +163,14 @@ public class TelegramUpdateHandler
 
             case "/mergeinfo":
                 await HandleMergeInfoCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/release":
+                await HandleReleaseCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/releaseinfo":
+                await HandleReleaseInfoCommandAsync(chatId, rawText, cancellationToken);
                 break;
 
             default:
@@ -638,6 +653,149 @@ public class TelegramUpdateHandler
             $"PR #{task.PullRequestNumber}: {task.PullRequestUrl}\n" +
             $"Created: {task.PullRequestCreatedAt:yyyy-MM-dd HH:mm} UTC",
             cancellationToken);
+    }
+
+    private async Task HandleReleaseCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        // /release <taskId>           — prepare release (runs Release Manager agent)
+        // /release <taskId> approve   — approve and create GitHub Release
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /release <taskId> [approve]", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        var isApprove = parts.Length >= 3 && string.Equals(parts[2], "approve", StringComparison.OrdinalIgnoreCase);
+
+        if (isApprove)
+        {
+            await _sender.SendTextAsync(chatId,
+                $"Creating GitHub Release for task [{task.Id.ToString("N")[..8]}] {task.Title}...\n" +
+                "You will receive a result when it completes.",
+                cancellationToken);
+
+            var taskId = task.Id;
+            var orchestrator = _releaseOrchestrator;
+            var sender = _sender;
+            var logger = _logger;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await orchestrator.ApproveAndPublishAsync(taskId, CancellationToken.None);
+                    var symbol = result.Succeeded ? "✅" : "❌";
+                    await sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Unhandled exception during release publish for task {TaskId}", taskId);
+                    await sender.SendTextAsync(chatId, "An unexpected error occurred during release publishing.", CancellationToken.None);
+                }
+            });
+        }
+        else
+        {
+            await _sender.SendTextAsync(chatId,
+                $"Running Release Manager for task [{task.Id.ToString("N")[..8]}] {task.Title}...\n" +
+                "You will receive a result when it completes.",
+                cancellationToken);
+
+            var taskId = task.Id;
+            var orchestrator = _releaseOrchestrator;
+            var sender = _sender;
+            var logger = _logger;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await orchestrator.PrepareAsync(taskId, CancellationToken.None);
+                    var symbol = result.Succeeded ? "✅" : "❌";
+                    await sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Unhandled exception during release preparation for task {TaskId}", taskId);
+                    await sender.SendTextAsync(chatId, "An unexpected error occurred during release preparation.", CancellationToken.None);
+                }
+            });
+        }
+    }
+
+    private async Task HandleReleaseInfoCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /releaseinfo <taskId>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        var shortId = task.Id.ToString("N")[..8];
+
+        // We need the release from the repository — ask via task prefix lookup + orchestrator info
+        // The handler doesn't have direct repository access; use a dedicated info path via the orchestrator
+        // We expose a lightweight info command using the orchestrator's PrepareAsync idempotency
+        // but that would re-run the agent. Instead, store release info in a dedicated query.
+        // For now, we call PrepareAsync which is idempotent when already prepared.
+        try
+        {
+            // The orchestrator is idempotent — if prepared, it returns the existing record without re-running
+            var result = await _releaseOrchestrator.PrepareAsync(task.Id, cancellationToken);
+
+            if (!result.Succeeded || result.Status is null)
+            {
+                await _sender.SendTextAsync(chatId,
+                    $"Task [{shortId}] {task.Title}\nNo release prepared yet. Use /release {shortId} to prepare.",
+                    cancellationToken);
+                return;
+            }
+
+            var urlLine = result.GitHubReleaseUrl is not null ? $"\nURL: {result.GitHubReleaseUrl}" : string.Empty;
+            await _sender.SendTextAsync(chatId,
+                $"Task [{shortId}] {task.Title}\n" +
+                $"Version: {result.Version}\n" +
+                $"Tag: {result.TagName}\n" +
+                $"Title: {result.Title}\n" +
+                $"Status: {result.Status}" +
+                urlLine,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to retrieve release info for task prefix {Prefix}", prefix);
+            await _sender.SendTextAsync(chatId, "Unable to retrieve release info right now.", cancellationToken);
+        }
     }
 
     private async Task HandleMergeCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)

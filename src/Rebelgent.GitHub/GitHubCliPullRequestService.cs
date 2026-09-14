@@ -62,6 +62,34 @@ public sealed class GitHubCliPullRequestService : IPullRequestService
             return Fail($"Refused to push protected branch '{request.BranchName}'. Agent branches must not be named like protected branches.");
         }
 
+        // Fetch latest remote state before pushing so we can detect a stale base.
+        _logger.LogInformation("Fetching {Remote} to verify branch is not stale before PR creation", request.RemoteName);
+        var fetchResult = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["fetch", request.RemoteName],
+            WorkingDirectory = request.RepositoryPath,
+            TimeoutMs = 60_000
+        }, cancellationToken);
+        if (!fetchResult.Success)
+            return Fail($"git fetch {request.RemoteName} failed: {fetchResult.StandardError}");
+
+        // Verify the remote default branch is still an ancestor of the task branch.
+        // If another PR was merged after this task branch was created, this check catches the conflict early.
+        var remoteBase = $"{request.RemoteName}/{request.BaseBranch}";
+        var ancestorResult = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["merge-base", "--is-ancestor", remoteBase, request.BranchName],
+            WorkingDirectory = request.RepositoryPath,
+            TimeoutMs = 10_000
+        }, cancellationToken);
+        if (!ancestorResult.Success)
+        {
+            _logger.LogError("Task branch {Branch} is not based on {RemoteBase} — remote has advanced since task was created", request.BranchName, remoteBase);
+            return Fail($"Task branch '{request.BranchName}' is not based on '{remoteBase}'. The remote default branch has advanced since the task branch was created. Please re-run the developer agent to rebase.");
+        }
+
         _logger.LogInformation("Pushing branch {Branch} to {Remote}", request.BranchName, request.RemoteName);
 
         var pushResult = await _processRunner.RunAsync(new ProcessRunOptions

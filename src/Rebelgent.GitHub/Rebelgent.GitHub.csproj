@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Rebelgent.Core\Rebelgent.Core.csproj" />
     <ProjectReference Include="..\Rebelgent.Orchestration\Rebelgent.Orchestration.csproj" />
+    <ProjectReference Include="..\Rebelgent.ClaudeCode\Rebelgent.ClaudeCode.csproj" />
   </ItemGroup>
 
   <ItemGroup>

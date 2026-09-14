@@ -27,7 +27,8 @@
       "Bash(Start-Sleep -Seconds 2)",
       "Bash(Select-Object -Property Id,Name)",
       "Bash(taskkill /PID 20812 /F)",
-      "Bash(cmd /c \"taskkill /PID 20812 /F\")"
+      "Bash(cmd /c \"taskkill /PID 20812 /F\")",
+      "Bash(xargs ls -la)"
     ]
   }
 }

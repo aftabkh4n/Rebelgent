@@ -118,6 +118,8 @@ public class GitHubCliPullRequestServiceTests
     public async Task PushAndCreate_NeverUsesForcePush()
     {
         var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok());                                         // git fetch
+        fake.Enqueue(Ok());                                         // git merge-base --is-ancestor
         fake.Enqueue(Ok());                                         // git push
         fake.Enqueue(Ok("https://github.com/org/repo/pull/42\n")); // gh pr create
 
@@ -133,8 +135,10 @@ public class GitHubCliPullRequestServiceTests
     public async Task PushAndCreate_PushesExactDeveloperBranch()
     {
         var fake = new FakeProcessRunner();
-        fake.Enqueue(Ok());
-        fake.Enqueue(Ok("https://github.com/org/repo/pull/42\n"));
+        fake.Enqueue(Ok());                                         // git fetch
+        fake.Enqueue(Ok());                                         // git merge-base --is-ancestor
+        fake.Enqueue(Ok());                                         // git push
+        fake.Enqueue(Ok("https://github.com/org/repo/pull/42\n")); // gh pr create
 
         var svc = BuildService(fake);
         await svc.PushAndCreateAsync(MakeRequest("rebelgent/task-abc12345"), CancellationToken.None);
@@ -145,23 +149,59 @@ public class GitHubCliPullRequestServiceTests
     }
 
     [Fact]
+    public async Task PushAndCreate_GitFetchFails_ReturnsFailWithoutPushing()
+    {
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Fail("network error"));   // git fetch fails
+
+        var svc = BuildService(fake);
+        var result = await svc.PushAndCreateAsync(MakeRequest(), CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("fetch", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(fake.Calls);
+        Assert.DoesNotContain(fake.Calls, c => c.Arguments.Contains("push"));
+    }
+
+    [Fact]
+    public async Task PushAndCreate_StaleBase_ReturnsFailWithoutPushing()
+    {
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok());                    // git fetch succeeds
+        fake.Enqueue(Fail("not an ancestor")); // git merge-base --is-ancestor fails
+
+        var svc = BuildService(fake);
+        var result = await svc.PushAndCreateAsync(MakeRequest(), CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("not based on", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, fake.Calls.Count);
+        Assert.DoesNotContain(fake.Calls, c => c.Arguments.Contains("push"));
+    }
+
+    [Fact]
     public async Task PushAndCreate_GitPushFails_ReturnsFailWithoutCreatingPr()
     {
         var fake = new FakeProcessRunner();
-        fake.Enqueue(Fail("Permission denied"));  // git push fails
+        fake.Enqueue(Ok());                    // git fetch succeeds
+        fake.Enqueue(Ok());                    // git merge-base --is-ancestor succeeds
+        fake.Enqueue(Fail("Permission denied")); // git push fails
 
         var svc = BuildService(fake);
         var result = await svc.PushAndCreateAsync(MakeRequest(), CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Contains("push failed", result.ErrorMessage, StringComparison.OrdinalIgnoreCase);
-        Assert.Single(fake.Calls);
+        Assert.Equal(3, fake.Calls.Count);
+        Assert.DoesNotContain(fake.Calls, c => c.FileName == "gh");
     }
 
     [Fact]
     public async Task PushAndCreate_GhPrCreateFails_ReturnsFail()
     {
         var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok());                         // git fetch succeeds
+        fake.Enqueue(Ok());                         // git merge-base --is-ancestor succeeds
         fake.Enqueue(Ok());                         // git push succeeds
         fake.Enqueue(Fail("Already exists"));       // gh pr create fails
 
@@ -176,8 +216,10 @@ public class GitHubCliPullRequestServiceTests
     public async Task PushAndCreate_Success_ReturnsPrNumberAndUrl()
     {
         var fake = new FakeProcessRunner();
-        fake.Enqueue(Ok());
-        fake.Enqueue(Ok("https://github.com/myorg/myrepo/pull/42\n"));
+        fake.Enqueue(Ok());                                              // git fetch
+        fake.Enqueue(Ok());                                              // git merge-base --is-ancestor
+        fake.Enqueue(Ok());                                              // git push
+        fake.Enqueue(Ok("https://github.com/myorg/myrepo/pull/42\n")); // gh pr create
 
         var svc = BuildService(fake);
         var result = await svc.PushAndCreateAsync(MakeRequest(), CancellationToken.None);
@@ -191,8 +233,10 @@ public class GitHubCliPullRequestServiceTests
     public async Task PushAndCreate_UsesCorrectBaseBranch()
     {
         var fake = new FakeProcessRunner();
-        fake.Enqueue(Ok());
-        fake.Enqueue(Ok("https://github.com/org/repo/pull/1\n"));
+        fake.Enqueue(Ok());                                          // git fetch
+        fake.Enqueue(Ok());                                          // git merge-base --is-ancestor
+        fake.Enqueue(Ok());                                          // git push
+        fake.Enqueue(Ok("https://github.com/org/repo/pull/1\n"));   // gh pr create
 
         var svc = BuildService(fake);
         var request = MakeRequest() with { BaseBranch = "develop" };
@@ -209,8 +253,10 @@ public class GitHubCliPullRequestServiceTests
     public async Task PushAndCreate_UsesTitleFromRequest()
     {
         var fake = new FakeProcessRunner();
-        fake.Enqueue(Ok());
-        fake.Enqueue(Ok("https://github.com/org/repo/pull/7\n"));
+        fake.Enqueue(Ok());                                          // git fetch
+        fake.Enqueue(Ok());                                          // git merge-base --is-ancestor
+        fake.Enqueue(Ok());                                          // git push
+        fake.Enqueue(Ok("https://github.com/org/repo/pull/7\n"));   // gh pr create
 
         var svc = BuildService(fake);
         var request = MakeRequest() with { Title = "My specific PR title" };
@@ -227,8 +273,10 @@ public class GitHubCliPullRequestServiceTests
     public async Task PushAndCreate_WithGitHubRepository_IncludesRepoArg()
     {
         var fake = new FakeProcessRunner();
-        fake.Enqueue(Ok());
-        fake.Enqueue(Ok("https://github.com/org/repo/pull/5\n"));
+        fake.Enqueue(Ok());                                          // git fetch
+        fake.Enqueue(Ok());                                          // git merge-base --is-ancestor
+        fake.Enqueue(Ok());                                          // git push
+        fake.Enqueue(Ok("https://github.com/org/repo/pull/5\n"));   // gh pr create
 
         var svc = BuildService(fake);
         var request = MakeRequest() with { GitHubRepository = "myorg/myrepo" };
@@ -245,8 +293,10 @@ public class GitHubCliPullRequestServiceTests
     public async Task PushAndCreate_WithoutGitHubRepository_OmitsRepoArg()
     {
         var fake = new FakeProcessRunner();
-        fake.Enqueue(Ok());
-        fake.Enqueue(Ok("https://github.com/org/repo/pull/5\n"));
+        fake.Enqueue(Ok());                                          // git fetch
+        fake.Enqueue(Ok());                                          // git merge-base --is-ancestor
+        fake.Enqueue(Ok());                                          // git push
+        fake.Enqueue(Ok("https://github.com/org/repo/pull/5\n"));   // gh pr create
 
         var svc = BuildService(fake);
         var request = MakeRequest() with { GitHubRepository = null };
@@ -260,8 +310,10 @@ public class GitHubCliPullRequestServiceTests
     public async Task PushAndCreate_NeverInvokesCmdOrPowershell()
     {
         var fake = new FakeProcessRunner();
-        fake.Enqueue(Ok());
-        fake.Enqueue(Ok("https://github.com/org/repo/pull/99\n"));
+        fake.Enqueue(Ok());                                              // git fetch
+        fake.Enqueue(Ok());                                              // git merge-base --is-ancestor
+        fake.Enqueue(Ok());                                              // git push
+        fake.Enqueue(Ok("https://github.com/org/repo/pull/99\n"));      // gh pr create
 
         var svc = BuildService(fake);
         await svc.PushAndCreateAsync(MakeRequest(), CancellationToken.None);
@@ -270,5 +322,23 @@ public class GitHubCliPullRequestServiceTests
             c.FileName.Contains("cmd", StringComparison.OrdinalIgnoreCase) ||
             c.FileName.Contains("powershell", StringComparison.OrdinalIgnoreCase) ||
             c.FileName.Contains("bash", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task PushAndCreate_AncestorCheckUsesRemoteRef()
+    {
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok());                                              // git fetch
+        fake.Enqueue(Ok());                                              // git merge-base --is-ancestor
+        fake.Enqueue(Ok());                                              // git push
+        fake.Enqueue(Ok("https://github.com/org/repo/pull/1\n"));       // gh pr create
+
+        var svc = BuildService(fake);
+        await svc.PushAndCreateAsync(MakeRequest(), CancellationToken.None);
+
+        var ancestorCall = fake.Calls.First(c => c.Arguments.Contains("merge-base"));
+        Assert.Contains("--is-ancestor", ancestorCall.Arguments);
+        // Remote ref must be "origin/main", not bare "main"
+        Assert.Contains("origin/main", ancestorCall.Arguments);
     }
 }
