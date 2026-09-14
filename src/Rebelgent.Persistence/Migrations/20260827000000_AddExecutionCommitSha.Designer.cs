@@ -2,6 +2,7 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Rebelgent.Persistence;
 
@@ -10,9 +11,11 @@ using Rebelgent.Persistence;
 namespace Rebelgent.Persistence.Migrations
 {
     [DbContext(typeof(RebelgentDbContext))]
-    partial class RebelgentDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260827000000_AddExecutionCommitSha")]
+    partial class AddExecutionCommitSha
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.11");
@@ -31,10 +34,6 @@ namespace Rebelgent.Persistence.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("TEXT");
 
-                    b.Property<string>("CommitSha")
-                        .HasMaxLength(40)
-                        .HasColumnType("TEXT");
-
                     b.Property<bool?>("BuildSucceeded")
                         .HasColumnType("INTEGER");
 
@@ -43,6 +42,10 @@ namespace Rebelgent.Persistence.Migrations
 
                     b.Property<long?>("CompletedAt")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("CommitSha")
+                        .HasMaxLength(40)
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("TEXT");

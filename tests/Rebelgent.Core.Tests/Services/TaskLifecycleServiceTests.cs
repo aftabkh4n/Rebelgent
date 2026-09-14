@@ -92,6 +92,50 @@ public class TaskLifecycleServiceTests
         Assert.NotNull(task.CompletedAt);
     }
 
+    [Fact]
+    public void Reviewing_To_AwaitingReview_Succeeds()
+    {
+        var task = CreateTask();
+        _lifecycle.Transition(task, AgentTaskStatus.Planning);
+        _lifecycle.Transition(task, AgentTaskStatus.AwaitingApproval);
+        _lifecycle.Transition(task, AgentTaskStatus.Approved);
+        _lifecycle.Transition(task, AgentTaskStatus.InProgress);
+        _lifecycle.Transition(task, AgentTaskStatus.Testing);
+        _lifecycle.Transition(task, AgentTaskStatus.Reviewing);
+        _lifecycle.Transition(task, AgentTaskStatus.AwaitingReview);
+        Assert.Equal(AgentTaskStatus.AwaitingReview, task.Status);
+    }
+
+    [Fact]
+    public void AwaitingReview_To_Completed_Succeeds()
+    {
+        var task = CreateTask();
+        _lifecycle.Transition(task, AgentTaskStatus.Planning);
+        _lifecycle.Transition(task, AgentTaskStatus.AwaitingApproval);
+        _lifecycle.Transition(task, AgentTaskStatus.Approved);
+        _lifecycle.Transition(task, AgentTaskStatus.InProgress);
+        _lifecycle.Transition(task, AgentTaskStatus.Testing);
+        _lifecycle.Transition(task, AgentTaskStatus.Reviewing);
+        _lifecycle.Transition(task, AgentTaskStatus.AwaitingReview);
+        _lifecycle.Transition(task, AgentTaskStatus.Completed);
+        Assert.Equal(AgentTaskStatus.Completed, task.Status);
+    }
+
+    [Fact]
+    public void AwaitingReview_To_ChangesRequested_Succeeds()
+    {
+        var task = CreateTask();
+        _lifecycle.Transition(task, AgentTaskStatus.Planning);
+        _lifecycle.Transition(task, AgentTaskStatus.AwaitingApproval);
+        _lifecycle.Transition(task, AgentTaskStatus.Approved);
+        _lifecycle.Transition(task, AgentTaskStatus.InProgress);
+        _lifecycle.Transition(task, AgentTaskStatus.Testing);
+        _lifecycle.Transition(task, AgentTaskStatus.Reviewing);
+        _lifecycle.Transition(task, AgentTaskStatus.AwaitingReview);
+        _lifecycle.Transition(task, AgentTaskStatus.ChangesRequested);
+        Assert.Equal(AgentTaskStatus.ChangesRequested, task.Status);
+    }
+
     // --- ChangesRequested paths ---
 
     [Fact]

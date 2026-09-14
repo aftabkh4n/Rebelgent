@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Rebelgent.ClaudeCode.DependencyInjection;
+using Rebelgent.ClaudeCode.Options;
 using Rebelgent.Infrastructure.DependencyInjection;
 using Rebelgent.Orchestration.DependencyInjection;
 using Rebelgent.Orchestration.Options;
@@ -36,6 +37,8 @@ public class TelegramDiCompositionTests
 
         services.Configure<ProjectRegistryOptions>(opts =>
             opts.Projects = []);
+
+        services.Configure<ClaudeCodeOptions>(_ => { });
 
         services.AddRebelgent();
         services.AddRebelgentPersistence();

@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Rebelgent.Core.Domain;
+using Rebelgent.Core.Repositories;
 using Rebelgent.Core.Services;
 using Rebelgent.Orchestration.Orchestrator;
 using Rebelgent.Orchestration.Projects;
@@ -23,6 +24,8 @@ public class TelegramUpdateHandler
     private readonly TelegramAuthorizationService _authorization;
     private readonly IProjectRegistry _projectRegistry;
     private readonly ITaskOrchestrator _orchestrator;
+    private readonly IQualityOrchestrator _qualityOrchestrator;
+    private readonly IAgentExecutionRepository _executionRepository;
     private readonly ILogger<TelegramUpdateHandler> _logger;
 
     public TelegramUpdateHandler(
@@ -31,6 +34,8 @@ public class TelegramUpdateHandler
         TelegramAuthorizationService authorization,
         IProjectRegistry projectRegistry,
         ITaskOrchestrator orchestrator,
+        IQualityOrchestrator qualityOrchestrator,
+        IAgentExecutionRepository executionRepository,
         ILogger<TelegramUpdateHandler> logger)
     {
         _taskService = taskService;
@@ -38,6 +43,8 @@ public class TelegramUpdateHandler
         _authorization = authorization;
         _projectRegistry = projectRegistry;
         _orchestrator = orchestrator;
+        _qualityOrchestrator = qualityOrchestrator;
+        _executionRepository = executionRepository;
         _logger = logger;
     }
 
@@ -83,8 +90,11 @@ public class TelegramUpdateHandler
                     "/tasks — recent tasks\n" +
                     "/projects — list registered projects\n" +
                     "/task <projectId> <description> — create a task for a project\n" +
-                    "/run <taskId> — run an agent on a task (requires human approval)\n" +
-                    "/taskinfo <taskId> — show task details\n\n" +
+                    "/run <taskId> — run the developer agent on a task\n" +
+                    "/taskinfo <taskId> — show task details\n" +
+                    "/review <taskId> — trigger QA and code review pipeline\n" +
+                    "/review <taskId> <approve|reject|rerun> — human decision after review\n" +
+                    "/reviews <taskId> — show QA and review findings for a task\n\n" +
                     "To create a task with the default project, send any non-command message.",
                     cancellationToken);
                 break;
@@ -111,6 +121,14 @@ public class TelegramUpdateHandler
 
             case "/taskinfo":
                 await HandleTaskInfoCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/review":
+                await HandleReviewCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/reviews":
+                await HandleReviewsCommandAsync(chatId, rawText, cancellationToken);
                 break;
 
             default:
@@ -274,7 +292,9 @@ public class TelegramUpdateHandler
             {
                 var result = await orchestrator.RunAsync(taskId, CancellationToken.None);
                 var emoji = result.Succeeded ? "✅" : "❌";
-                await sender.SendTextAsync(chatId, $"{emoji} {result.Summary}", CancellationToken.None);
+                await sender.SendTextAsync(chatId,
+                    $"{emoji} {result.Summary}\n\nUse /review {taskId.ToString("N")[..8]} to run QA and code review.",
+                    CancellationToken.None);
             }
             catch (Exception ex)
             {
@@ -327,6 +347,180 @@ public class TelegramUpdateHandler
         {
             _logger.LogError(ex, "Failed to retrieve task info for prefix {Prefix}", prefix);
             await _sender.SendTextAsync(chatId, "Unable to retrieve task info right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleReviewCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        // /review <taskId>              — trigger QA + code review pipeline
+        // /review <taskId> approve      — human approves, marks Completed
+        // /review <taskId> reject       — human rejects, marks Failed
+        // /review <taskId> rerun        — re-trigger QA + code review
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId,
+                "Usage: /review <taskId> — trigger QA and code review\n" +
+                "       /review <taskId> <approve|reject|rerun> — human decision after review",
+                cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+
+        if (parts.Length == 2)
+        {
+            // 2-arg: trigger QA + review pipeline
+            await _sender.SendTextAsync(chatId,
+                $"Starting QA and Code Review for task [{task.Id.ToString("N")[..8]}] {task.Title}...\n" +
+                "You will receive a result when it completes.",
+                cancellationToken);
+
+            var taskId = task.Id;
+            var qualityOrchestrator = _qualityOrchestrator;
+            var sender = _sender;
+            var logger = _logger;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await qualityOrchestrator.RunAsync(taskId, CancellationToken.None);
+                    var emoji = result.Succeeded ? "✅" : "⚠️";
+                    await sender.SendTextAsync(chatId, $"{emoji} {result.Summary}", CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Unhandled exception during quality orchestration for task {TaskId}", taskId);
+                    await sender.SendTextAsync(chatId, "An unexpected error occurred during quality review.", CancellationToken.None);
+                }
+            });
+            return;
+        }
+
+        // 3-arg: human decision
+        var decision = parts[2].ToLowerInvariant();
+        if (decision is not ("approve" or "reject" or "rerun"))
+        {
+            await _sender.SendTextAsync(chatId, "Decision must be: approve, reject, or rerun", cancellationToken);
+            return;
+        }
+
+        switch (decision)
+        {
+            case "approve":
+                await _taskService.TransitionAsync(task.Id, AgentTaskStatus.Completed, cancellationToken);
+                await _sender.SendTextAsync(chatId,
+                    $"Task [{task.Id.ToString("N")[..8]}] approved and marked Completed.\n" +
+                    $"Branch: {task.BranchName ?? "(none)"}\n" +
+                    "Create a pull request manually when ready.",
+                    cancellationToken);
+                break;
+
+            case "reject":
+                await _taskService.TransitionAsync(task.Id, AgentTaskStatus.Failed, cancellationToken);
+                await _sender.SendTextAsync(chatId,
+                    $"Task [{task.Id.ToString("N")[..8]}] rejected and marked Failed.",
+                    cancellationToken);
+                break;
+
+            case "rerun":
+                await _sender.SendTextAsync(chatId,
+                    $"Triggering QA + Code Review for task [{task.Id.ToString("N")[..8]}]...",
+                    cancellationToken);
+
+                var rerunTaskId = task.Id;
+                var rerunQualityOrchestrator = _qualityOrchestrator;
+                var rerunSender = _sender;
+                var rerunLogger = _logger;
+
+                _ = Task.Run(async () =>
+                {
+                    try
+                    {
+                        var result = await rerunQualityOrchestrator.RunAsync(rerunTaskId, CancellationToken.None);
+                        var emoji = result.Succeeded ? "✅" : "⚠️";
+                        await rerunSender.SendTextAsync(chatId, $"{emoji} {result.Summary}", CancellationToken.None);
+                    }
+                    catch (Exception ex)
+                    {
+                        rerunLogger.LogError(ex, "Unhandled exception during quality orchestration for task {TaskId}", rerunTaskId);
+                        await rerunSender.SendTextAsync(chatId, "An unexpected error occurred during quality review.", CancellationToken.None);
+                    }
+                });
+                break;
+        }
+    }
+
+    private async Task HandleReviewsCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        // Expected: /reviews <taskId>
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /reviews <taskId>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+
+        try
+        {
+            var executions = await _executionRepository.GetAllByTaskIdAsync(task.Id, cancellationToken);
+            if (executions.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId, $"No executions found for task [{task.Id.ToString("N")[..8]}].", cancellationToken);
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder();
+            sb.AppendLine($"Executions for task [{task.Id.ToString("N")[..8]}] {task.Title}:");
+            sb.AppendLine();
+
+            foreach (var exec in executions)
+            {
+                sb.AppendLine($"Role: {exec.Role} | Status: {exec.Status} | Provider: {exec.Provider}");
+                sb.AppendLine($"Started: {exec.StartedAt:yyyy-MM-dd HH:mm} UTC");
+                if (!string.IsNullOrWhiteSpace(exec.Findings))
+                    sb.AppendLine($"Findings: {exec.Findings[..Math.Min(500, exec.Findings.Length)]}");
+                if (!string.IsNullOrWhiteSpace(exec.ErrorMessage))
+                    sb.AppendLine($"Error: {exec.ErrorMessage}");
+                sb.AppendLine();
+            }
+
+            await _sender.SendTextAsync(chatId, sb.ToString().TrimEnd(), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to retrieve executions for task prefix {Prefix}", prefix);
+            await _sender.SendTextAsync(chatId, "Unable to retrieve execution history right now.", cancellationToken);
         }
     }
 

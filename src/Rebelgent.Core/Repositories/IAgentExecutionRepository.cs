@@ -10,4 +10,8 @@ public interface IAgentExecutionRepository
     Task UpdateAsync(AgentExecutionRecord record, CancellationToken cancellationToken = default);
 
     Task<AgentExecutionRecord?> GetLatestByTaskIdAsync(Guid taskId, CancellationToken cancellationToken = default);
+
+    Task<AgentExecutionRecord?> GetLatestByTaskIdAndRoleAsync(Guid taskId, AgentRole role, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<AgentExecutionRecord>> GetAllByTaskIdAsync(Guid taskId, CancellationToken cancellationToken = default);
 }

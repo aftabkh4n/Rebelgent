@@ -32,7 +32,8 @@ public class TelegramM3CommandTests
         var sender = new FakeMessageSender();
         var projectRegistry = new FakeProjectRegistry(projects ?? [SandboxProject]);
         var orchestrator = new FakeTaskOrchestrator();
-        var handler = new TelegramUpdateHandler(taskService, sender, auth, projectRegistry, orchestrator, NullLogger<TelegramUpdateHandler>.Instance);
+        var handler = new TelegramUpdateHandler(taskService, sender, auth, projectRegistry, orchestrator,
+            new FakeQualityOrchestrator(), new FakeExecutionRepository(), NullLogger<TelegramUpdateHandler>.Instance);
         return (handler, taskService, sender, orchestrator);
     }
 
