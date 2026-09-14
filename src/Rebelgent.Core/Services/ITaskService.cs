@@ -18,4 +18,6 @@ public interface ITaskService
     Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default);
 
     Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int pullRequestNumber, string pullRequestUrl, CancellationToken cancellationToken = default);
+
+    Task<AgentTask?> SetMergeInfoAsync(Guid id, string mergeCommitSha, string mergeMethod, CancellationToken cancellationToken = default);
 }

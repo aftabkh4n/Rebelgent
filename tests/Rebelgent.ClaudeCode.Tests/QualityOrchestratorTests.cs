@@ -27,6 +27,7 @@ public class QualityOrchestratorTests
         public Task<IReadOnlyCollection<AgentTask>> FindByPrefixAsync(string p, int max, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<AgentTask?> SetBranchNameAsync(Guid id, string branch, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int number, string url, CancellationToken ct = default) => throw new NotImplementedException();
+        public Task<AgentTask?> SetMergeInfoAsync(Guid id, string sha, string method, CancellationToken ct = default) => throw new NotImplementedException();
     }
 
     private sealed class FakeExecutionRepo : IAgentExecutionRepository

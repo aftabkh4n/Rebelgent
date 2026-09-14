@@ -26,4 +26,7 @@ internal class FakeThrowingTaskService : ITaskService
 
     public Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int pullRequestNumber, string pullRequestUrl, CancellationToken cancellationToken = default)
         => throw new InvalidOperationException("Simulated persistence failure.");
+
+    public Task<AgentTask?> SetMergeInfoAsync(Guid id, string mergeCommitSha, string mergeMethod, CancellationToken cancellationToken = default)
+        => throw new InvalidOperationException("Simulated persistence failure.");
 }

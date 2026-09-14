@@ -8,14 +8,14 @@ using Rebelgent.Orchestration.Projects;
 
 namespace Rebelgent.GitHub.Tests;
 
-public class PullRequestOrchestratorTests
+public class MergeOrchestratorTests
 {
     // ── Fakes ────────────────────────────────────────────────────────────────
 
     private sealed class FakeTaskService : ITaskService
     {
         public AgentTask? Task { get; set; }
-        public (int Number, string Url)? PrInfoSet { get; private set; }
+        public (string Sha, string Method)? MergeInfoSet { get; private set; }
 
         public System.Threading.Tasks.Task<AgentTask?> GetTaskAsync(Guid id, CancellationToken ct = default) =>
             System.Threading.Tasks.Task.FromResult(Task);
@@ -25,14 +25,14 @@ public class PullRequestOrchestratorTests
         public System.Threading.Tasks.Task<IReadOnlyCollection<AgentTask>> GetRecentTasksAsync(int n = 20, CancellationToken ct = default) => throw new NotImplementedException();
         public System.Threading.Tasks.Task<IReadOnlyCollection<AgentTask>> FindByPrefixAsync(string p, int max, CancellationToken ct = default) => throw new NotImplementedException();
         public System.Threading.Tasks.Task<AgentTask?> SetBranchNameAsync(Guid id, string branch, CancellationToken ct = default) => throw new NotImplementedException();
-        public System.Threading.Tasks.Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int number, string url, CancellationToken ct = default)
+        public System.Threading.Tasks.Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int number, string url, CancellationToken ct = default) =>
+            System.Threading.Tasks.Task.FromResult(Task);
+        public System.Threading.Tasks.Task<AgentTask?> SetMergeInfoAsync(Guid id, string sha, string method, CancellationToken ct = default)
         {
-            PrInfoSet = (number, url);
-            if (Task is not null) Task.SetPullRequestInfo(number, url);
+            MergeInfoSet = (sha, method);
+            if (Task is not null) Task.SetMergeInfo(sha, method);
             return System.Threading.Tasks.Task.FromResult(Task);
         }
-        public System.Threading.Tasks.Task<AgentTask?> SetMergeInfoAsync(Guid id, string sha, string method, CancellationToken ct = default) =>
-            System.Threading.Tasks.Task.FromResult(Task);
     }
 
     private sealed class FakeExecutionRepo : IAgentExecutionRepository
@@ -61,11 +61,12 @@ public class PullRequestOrchestratorTests
             System.Threading.Tasks.Task.FromResult<IReadOnlyList<AgentExecutionRecord>>([]);
     }
 
-    private sealed class FakePullRequestService : IPullRequestService
+    private sealed class FakeMergeService : IPullRequestMergeService
     {
         public bool IsReady { get; set; } = true;
-        public PullRequestCreatedResult? PushAndCreateResult { get; set; }
-        public PushAndCreateRequest? LastRequest { get; private set; }
+        public PrStateResult PrState { get; set; } = PrStateResult.Ok("rebelgent/task-abc12345", "main", "OPEN", true);
+        public PullRequestMergeResult? MergeResult { get; set; }
+        public MergeRequest? LastMergeRequest { get; private set; }
         public string? ErrorForValidation { get; set; }
 
         public System.Threading.Tasks.Task<GitHubValidationResult> ValidateAsync(CancellationToken ct = default) =>
@@ -73,15 +74,13 @@ public class PullRequestOrchestratorTests
                 ? GitHubValidationResult.Ready()
                 : GitHubValidationResult.Unavailable(ErrorForValidation ?? "gh not available"));
 
-        public System.Threading.Tasks.Task<PullRequestCreatedResult> PushAndCreateAsync(PushAndCreateRequest request, CancellationToken ct = default)
+        public System.Threading.Tasks.Task<PrStateResult> GetPrStateAsync(int prNumber, string repoPath, string? ghRepo, CancellationToken ct = default) =>
+            System.Threading.Tasks.Task.FromResult(PrState);
+
+        public System.Threading.Tasks.Task<PullRequestMergeResult> MergeAsync(MergeRequest request, CancellationToken ct = default)
         {
-            LastRequest = request;
-            return System.Threading.Tasks.Task.FromResult(PushAndCreateResult ?? new PullRequestCreatedResult
-            {
-                Succeeded = true,
-                PullRequestNumber = 42,
-                PullRequestUrl = "https://github.com/org/repo/pull/42"
-            });
+            LastMergeRequest = request;
+            return System.Threading.Tasks.Task.FromResult(MergeResult ?? PullRequestMergeResult.Ok("abc123def456", "squash"));
         }
     }
 
@@ -130,14 +129,19 @@ public class PullRequestOrchestratorTests
     };
 
     private static AgentTask MakeTask(AgentTaskStatus status, string? branch = "rebelgent/task-abc12345",
-        string projectId = "sandbox", string? prUrl = null)
+        string projectId = "sandbox", bool hasPr = true, string? mergeCommitSha = null)
     {
-        var task = AgentTask.Reconstitute(
+        return AgentTask.Reconstitute(
             Guid.NewGuid(), projectId, "Add login feature", "Implement OAuth login",
             AgentRole.BackendDeveloper, status, RiskLevel.Low,
             DateTimeOffset.UtcNow, null, null,
-            branch, prUrl is null ? null : 99, prUrl, prUrl is null ? null : DateTimeOffset.UtcNow);
-        return task;
+            branch,
+            hasPr ? 42 : null,
+            hasPr ? "https://github.com/org/repo/pull/42" : null,
+            hasPr ? DateTimeOffset.UtcNow : null,
+            mergeCommitSha is not null ? DateTimeOffset.UtcNow : null,
+            mergeCommitSha,
+            mergeCommitSha is not null ? "squash" : null);
     }
 
     private static AgentExecutionRecord MakeDevExecution(string? commitSha = "abc1234567890def")
@@ -170,9 +174,9 @@ public class PullRequestOrchestratorTests
         return rec;
     }
 
-    private (PullRequestOrchestrator orchestrator, FakeTaskService taskService, FakePullRequestService prService)
+    private (MergeOrchestrator orchestrator, FakeTaskService taskService, FakeMergeService mergeService)
         Build(AgentTask? task, AgentExecutionRecord? dev, AgentExecutionRecord? qa, AgentExecutionRecord? reviewer,
-            bool ghReady = true, PullRequestCreatedResult? prResult = null,
+            bool ghReady = true, PrStateResult? prState = null, PullRequestMergeResult? mergeResult = null,
             ProjectDefinition[]? projects = null)
     {
         var taskService = new FakeTaskService { Task = task };
@@ -180,13 +184,19 @@ public class PullRequestOrchestratorTests
         var provider = new FakeServiceProvider(taskService, executionRepo);
         var scopeFactory = new FakeScopeFactory(provider);
         var registry = new FakeProjectRegistry(projects ?? [SandboxProject]);
-        var prService = new FakePullRequestService { IsReady = ghReady, PushAndCreateResult = prResult };
+        var mergeService = new FakeMergeService
+        {
+            IsReady = ghReady,
+            MergeResult = mergeResult
+        };
+        if (prState is not null)
+            mergeService.PrState = prState;
 
-        var orchestrator = new PullRequestOrchestrator(
-            scopeFactory, registry, prService,
-            NullLogger<PullRequestOrchestrator>.Instance);
+        var orchestrator = new MergeOrchestrator(
+            scopeFactory, registry, mergeService,
+            NullLogger<MergeOrchestrator>.Instance);
 
-        return (orchestrator, taskService, prService);
+        return (orchestrator, taskService, mergeService);
     }
 
     // ── Task not found ────────────────────────────────────────────────────────
@@ -205,16 +215,16 @@ public class PullRequestOrchestratorTests
     // ── Idempotency ───────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task RunAsync_PrAlreadyCreated_ReturnsExistingPrWithoutCallingService()
+    public async Task RunAsync_AlreadyMerged_ReturnsExistingMergeInfoWithoutCallingService()
     {
-        var task = MakeTask(AgentTaskStatus.AwaitingReview, prUrl: "https://github.com/org/repo/pull/99");
-        var (orchestrator, _, prService) = Build(task, null, null, null);
+        var task = MakeTask(AgentTaskStatus.AwaitingReview, mergeCommitSha: "existingsha");
+        var (orchestrator, _, mergeService) = Build(task, null, null, null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(99, result.PullRequestNumber);
-        Assert.Null(prService.LastRequest);
+        Assert.Equal("existingsha", result.MergeCommitSha);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     // ── Status guard ──────────────────────────────────────────────────────────
@@ -223,60 +233,73 @@ public class PullRequestOrchestratorTests
     public async Task RunAsync_TaskInCreatedStatus_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.Created);
-        var (orchestrator, _, prService) = Build(task, null, null, null);
+        var (orchestrator, _, mergeService) = Build(task, null, null, null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     [Fact]
     public async Task RunAsync_TaskInInProgressStatus_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.InProgress);
-        var (orchestrator, _, prService) = Build(task, null, null, null);
+        var (orchestrator, _, mergeService) = Build(task, null, null, null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     [Fact]
     public async Task RunAsync_TaskInAwaitingReview_ProceedsPastStatusCheck()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
 
         await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
-        Assert.NotNull(prService.LastRequest);
+        Assert.NotNull(mergeService.LastMergeRequest);
     }
 
     [Fact]
     public async Task RunAsync_TaskCompleted_ProceedsPastStatusCheck()
     {
         var task = MakeTask(AgentTaskStatus.Completed);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
 
         await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
-        Assert.NotNull(prService.LastRequest);
+        Assert.NotNull(mergeService.LastMergeRequest);
     }
 
-    // ── Missing branch ────────────────────────────────────────────────────────
+    // ── Missing branch / PR ───────────────────────────────────────────────────
 
     [Fact]
     public async Task RunAsync_TaskHasNoBranch_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview, branch: null);
-        var (orchestrator, _, prService) = Build(task, null, null, null);
+        var (orchestrator, _, mergeService) = Build(task, null, null, null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
+    }
+
+    [Fact]
+    public async Task RunAsync_TaskHasNoPullRequest_ReturnsFail()
+    {
+        var task = MakeTask(AgentTaskStatus.AwaitingReview, hasPr: false);
+        var (orchestrator, _, mergeService) = Build(task, null, null, null);
+
+        var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("pull request", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     // ── Unknown project ───────────────────────────────────────────────────────
@@ -285,13 +308,13 @@ public class PullRequestOrchestratorTests
     public async Task RunAsync_UnknownProject_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview, projectId: "unknown");
-        var (orchestrator, _, prService) = Build(task, null, null, null);
+        var (orchestrator, _, mergeService) = Build(task, null, null, null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Contains("not registered", result.Summary, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     // ── Execution record guards ───────────────────────────────────────────────
@@ -300,76 +323,76 @@ public class PullRequestOrchestratorTests
     public async Task RunAsync_NoDevExecution_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, dev: null, qa: null, reviewer: null);
+        var (orchestrator, _, mergeService) = Build(task, dev: null, qa: null, reviewer: null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Contains("commit SHA", result.Summary, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     [Fact]
     public async Task RunAsync_DevExecutionMissingCommitSha_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(commitSha: null), null, null);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(commitSha: null), null, null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Contains("commit SHA", result.Summary, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     [Fact]
     public async Task RunAsync_QaFailed_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(passed: false), null);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(passed: false), null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Contains("QA", result.Summary, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     [Fact]
     public async Task RunAsync_NoQaExecution_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), qa: null, reviewer: null);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), qa: null, reviewer: null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     [Fact]
     public async Task RunAsync_ReviewerChangesRequested_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(approved: false));
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(approved: false));
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
         Assert.Contains("review", result.Summary, StringComparison.OrdinalIgnoreCase);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     [Fact]
     public async Task RunAsync_NoReviewerExecution_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), reviewer: null);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), reviewer: null);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.Null(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     // ── gh CLI availability ───────────────────────────────────────────────────
@@ -378,7 +401,7 @@ public class PullRequestOrchestratorTests
     public async Task RunAsync_GhUnavailable_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(), ghReady: false);
+        var (orchestrator, _, _) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(), ghReady: false);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
@@ -386,104 +409,129 @@ public class PullRequestOrchestratorTests
         Assert.Contains("GitHub CLI", result.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
-    // ── Push and PR creation failures ─────────────────────────────────────────
+    // ── PR state validation ───────────────────────────────────────────────────
 
     [Fact]
-    public async Task RunAsync_PushFails_ReturnsFail()
+    public async Task RunAsync_PrStateFetchFails_ReturnsFail()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var failResult = new PullRequestCreatedResult { Succeeded = false, ErrorMessage = "push failed: permission denied" };
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(),
-            prResult: failResult);
+        var failState = PrStateResult.Fail("Could not retrieve PR state");
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(), prState: failState);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
-        Assert.NotNull(prService.LastRequest);
+        Assert.Null(mergeService.LastMergeRequest);
     }
 
     [Fact]
-    public async Task RunAsync_PrCreateFails_ReturnsFail()
+    public async Task RunAsync_MismatchedHeadBranch_ReturnsFail()
     {
-        var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var failResult = new PullRequestCreatedResult { Succeeded = false, ErrorMessage = "gh pr create failed" };
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(),
-            prResult: failResult);
+        var task = MakeTask(AgentTaskStatus.AwaitingReview, branch: "rebelgent/task-abc12345");
+        var mismatchedState = PrStateResult.Ok("some-other-branch", "main", "OPEN", true);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(), prState: mismatchedState);
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.False(result.Succeeded);
+        Assert.Contains("head branch", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(mergeService.LastMergeRequest);
+    }
+
+    [Fact]
+    public async Task RunAsync_MismatchedBaseBranch_ReturnsFail()
+    {
+        var task = MakeTask(AgentTaskStatus.AwaitingReview);
+        var mismatchedState = PrStateResult.Ok("rebelgent/task-abc12345", "develop", "OPEN", true);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(), prState: mismatchedState);
+
+        var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("base branch", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(mergeService.LastMergeRequest);
+    }
+
+    [Fact]
+    public async Task RunAsync_PrClosed_ReturnsFail()
+    {
+        var task = MakeTask(AgentTaskStatus.AwaitingReview);
+        var closedState = PrStateResult.Ok("rebelgent/task-abc12345", "main", "CLOSED", null);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(), prState: closedState);
+
+        var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("not open", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(mergeService.LastMergeRequest);
+    }
+
+    [Fact]
+    public async Task RunAsync_PrHasConflicts_ReturnsFail()
+    {
+        var task = MakeTask(AgentTaskStatus.AwaitingReview);
+        var conflictState = PrStateResult.Ok("rebelgent/task-abc12345", "main", "OPEN", false);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(), prState: conflictState);
+
+        var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("conflict", result.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(mergeService.LastMergeRequest);
+    }
+
+    // ── Merge failure ─────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task RunAsync_MergeFails_ReturnsFail()
+    {
+        var task = MakeTask(AgentTaskStatus.AwaitingReview);
+        var failResult = PullRequestMergeResult.Fail("branch protection rule violation");
+        var (orchestrator, _, _) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution(), mergeResult: failResult);
+
+        var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("merge failed", result.Summary, StringComparison.OrdinalIgnoreCase);
     }
 
     // ── Successful flow ───────────────────────────────────────────────────────
 
     [Fact]
-    public async Task RunAsync_AllChecksPass_ReturnsPrNumberAndUrl()
+    public async Task RunAsync_AllChecksPass_ReturnsSuccessWithMergeInfo()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
+        var (orchestrator, _, _) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
 
         var result = await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
         Assert.True(result.Succeeded);
-        Assert.Equal(42, result.PullRequestNumber);
-        Assert.Equal("https://github.com/org/repo/pull/42", result.PullRequestUrl);
+        Assert.Equal("abc123def456", result.MergeCommitSha);
+        Assert.Equal("squash", result.MergeMethod);
     }
 
     [Fact]
-    public async Task RunAsync_AllChecksPass_UsesDeveloperBranchNameInRequest()
-    {
-        var task = MakeTask(AgentTaskStatus.AwaitingReview, branch: "rebelgent/task-abc12345");
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
-
-        await orchestrator.RunAsync(task.Id, CancellationToken.None);
-
-        Assert.Equal("rebelgent/task-abc12345", prService.LastRequest!.BranchName);
-    }
-
-    [Fact]
-    public async Task RunAsync_AllChecksPass_UsesTaskTitleInRequest()
-    {
-        var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
-
-        await orchestrator.RunAsync(task.Id, CancellationToken.None);
-
-        Assert.Equal("Add login feature", prService.LastRequest!.Title);
-    }
-
-    [Fact]
-    public async Task RunAsync_AllChecksPass_UsesConfiguredRemoteName()
-    {
-        var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
-
-        await orchestrator.RunAsync(task.Id, CancellationToken.None);
-
-        Assert.Equal("origin", prService.LastRequest!.RemoteName);
-    }
-
-    [Fact]
-    public async Task RunAsync_AllChecksPass_UsesConfiguredBaseBranch()
-    {
-        var task = MakeTask(AgentTaskStatus.AwaitingReview);
-        var (orchestrator, _, prService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
-
-        await orchestrator.RunAsync(task.Id, CancellationToken.None);
-
-        Assert.Equal("main", prService.LastRequest!.BaseBranch);
-    }
-
-    [Fact]
-    public async Task RunAsync_AllChecksPass_PersistsPrInfo()
+    public async Task RunAsync_AllChecksPass_PersistsMergeInfo()
     {
         var task = MakeTask(AgentTaskStatus.AwaitingReview);
         var (orchestrator, taskService, _) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
 
         await orchestrator.RunAsync(task.Id, CancellationToken.None);
 
-        Assert.NotNull(taskService.PrInfoSet);
-        Assert.Equal(42, taskService.PrInfoSet!.Value.Number);
-        Assert.Equal("https://github.com/org/repo/pull/42", taskService.PrInfoSet!.Value.Url);
+        Assert.NotNull(taskService.MergeInfoSet);
+        Assert.Equal("abc123def456", taskService.MergeInfoSet!.Value.Sha);
+        Assert.Equal("squash", taskService.MergeInfoSet!.Value.Method);
+    }
+
+    [Fact]
+    public async Task RunAsync_AllChecksPass_UsesCorrectPrNumberInMergeRequest()
+    {
+        var task = MakeTask(AgentTaskStatus.AwaitingReview);
+        var (orchestrator, _, mergeService) = Build(task, MakeDevExecution(), MakeQaExecution(), MakeReviewerExecution());
+
+        await orchestrator.RunAsync(task.Id, CancellationToken.None);
+
+        Assert.NotNull(mergeService.LastMergeRequest);
+        Assert.Equal(42, mergeService.LastMergeRequest!.PullRequestNumber);
     }
 }
