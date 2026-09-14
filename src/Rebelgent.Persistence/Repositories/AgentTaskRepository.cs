@@ -22,6 +22,17 @@ internal class AgentTaskRepository : IAgentTaskRepository
         await _db.SaveChangesAsync(cancellationToken);
     }
 
+    public async Task UpdateAsync(AgentTask task, CancellationToken cancellationToken = default)
+    {
+        var existing = await _db.AgentTasks.FindAsync([task.Id], cancellationToken);
+        if (existing is null)
+            throw new InvalidOperationException($"AgentTask {task.Id} not found for update.");
+
+        var updated = AgentTaskRecord.FromDomain(task);
+        _db.Entry(existing).CurrentValues.SetValues(updated);
+        await _db.SaveChangesAsync(cancellationToken);
+    }
+
     public async Task<AgentTask?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         var record = await _db.AgentTasks
@@ -40,5 +51,23 @@ internal class AgentTaskRepository : IAgentTaskRepository
             .ToListAsync(cancellationToken);
 
         return records.Select(r => r.ToDomain()).ToList().AsReadOnly();
+    }
+
+    public async Task<IReadOnlyCollection<AgentTask>> FindByPrefixAsync(string prefix, int maxResults, CancellationToken cancellationToken = default)
+    {
+        // Load a bounded set then filter in-memory (short-ID prefix match on GUID hex string)
+        var recent = await _db.AgentTasks
+            .AsNoTracking()
+            .OrderByDescending(t => t.CreatedAt)
+            .Take(200)
+            .ToListAsync(cancellationToken);
+
+        var normalised = prefix.ToLowerInvariant().Replace("-", "");
+        return recent
+            .Where(r => r.Id.ToString("N").StartsWith(normalised, StringComparison.OrdinalIgnoreCase))
+            .Take(maxResults)
+            .Select(r => r.ToDomain())
+            .ToList()
+            .AsReadOnly();
     }
 }

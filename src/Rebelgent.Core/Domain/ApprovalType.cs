@@ -9,5 +9,6 @@ public enum ApprovalType
     PackagePublish,
     ContentPublish,
     DestructiveAction,
-    SecretChange
+    SecretChange,
+    TaskExecution
 }

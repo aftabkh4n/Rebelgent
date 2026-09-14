@@ -16,7 +16,7 @@ public static class TelegramServiceExtensions
     public static IServiceCollection AddRebelgentTelegram(this IServiceCollection services)
     {
         services.AddSingleton<TelegramAuthorizationService>();
-        services.AddScoped<ITelegramMessageSender, TelegramMessageSender>();
+        services.AddSingleton<ITelegramMessageSender, TelegramMessageSender>();
         services.AddScoped<TelegramUpdateHandler>();
         services.AddHostedService<TelegramBotService>();
         return services;

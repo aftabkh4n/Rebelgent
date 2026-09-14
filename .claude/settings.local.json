@@ -9,7 +9,14 @@
       "Bash(echo \"Exit: $?\")",
       "Bash(curl -s -X POST http://localhost:5236/api/tasks -H 'Content-Type: application/json' -d '{\"projectId\":\"default\",\"title\":\"Add memory expiration to BlazorMemory\",\"description\":\"Add memory expiration support\"}')",
       "Bash(python3 -m json.tool)",
-      "Bash(curl -s \"http://localhost:5236/api/tasks?count=10\")"
+      "Bash(curl -s \"http://localhost:5236/api/tasks?count=10\")",
+      "Bash(claude --version)",
+      "Bash(git checkout *)",
+      "Bash(git -C D:\\\\Projects\\\\Rebelgent status --short)",
+      "Bash(git -C D:\\\\Projects\\\\Rebelgent branch)",
+      "Bash(Stop-Process -Id 1756 -Force -ErrorAction SilentlyContinue)",
+      "Bash(Start-Sleep -Seconds 1)",
+      "PowerShell(Stop-Process *)"
     ]
   }
 }

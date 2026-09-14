@@ -1,9 +1,14 @@
 using Microsoft.EntityFrameworkCore;
+using Rebelgent.ClaudeCode.DependencyInjection;
+using Rebelgent.ClaudeCode.Options;
 using Rebelgent.Contracts.Requests;
 using Rebelgent.Contracts.Responses;
 using Rebelgent.Core.Domain;
 using Rebelgent.Core.Services;
 using Rebelgent.Infrastructure.DependencyInjection;
+using Rebelgent.Orchestration.DependencyInjection;
+using Rebelgent.Orchestration.Options;
+using Rebelgent.Orchestration.Projects;
 using Rebelgent.Persistence;
 using Rebelgent.Persistence.Options;
 using Rebelgent.Telegram;
@@ -16,12 +21,26 @@ builder.Services.Configure<PersistenceOptions>(
     builder.Configuration.GetSection(PersistenceOptions.SectionName));
 builder.Services.Configure<TelegramOptions>(
     builder.Configuration.GetSection(TelegramOptions.SectionName));
+builder.Services.Configure<WorkspaceOptions>(
+    builder.Configuration.GetSection(WorkspaceOptions.SectionName));
+builder.Services.Configure<ExecutionOptions>(
+    builder.Configuration.GetSection(ExecutionOptions.SectionName));
+builder.Services.Configure<ProjectRegistryOptions>(
+    builder.Configuration.GetSection(ProjectRegistryOptions.SectionName));
+builder.Services.Configure<ClaudeCodeOptions>(
+    builder.Configuration.GetSection(ClaudeCodeOptions.SectionName));
 
 // Core services and agent registry
 builder.Services.AddRebelgent();
 
 // SQLite persistence
 builder.Services.AddRebelgentPersistence();
+
+// Orchestration (project registry, workspace manager, task orchestrator)
+builder.Services.AddRebelgentOrchestration();
+
+// Claude Code process runner and agent runner
+builder.Services.AddRebelgentClaudeCode();
 
 // Telegram bot (conditional on configuration)
 builder.Services.AddRebelgentTelegram();

@@ -22,4 +22,21 @@ internal class FakeTaskService : ITaskService
         IReadOnlyCollection<AgentTask> result = CreatedTasks.TakeLast(count).ToList().AsReadOnly();
         return Task.FromResult(result);
     }
+
+    public Task<IReadOnlyCollection<AgentTask>> FindByPrefixAsync(string prefix, int maxResults, CancellationToken cancellationToken = default)
+    {
+        var normalised = prefix.ToLowerInvariant().Replace("-", "");
+        IReadOnlyCollection<AgentTask> result = CreatedTasks
+            .Where(t => t.Id.ToString("N").StartsWith(normalised, StringComparison.OrdinalIgnoreCase))
+            .Take(maxResults)
+            .ToList()
+            .AsReadOnly();
+        return Task.FromResult(result);
+    }
+
+    public Task<AgentTask?> TransitionAsync(Guid id, AgentTaskStatus newStatus, CancellationToken cancellationToken = default)
+        => Task.FromResult(CreatedTasks.FirstOrDefault(t => t.Id == id));
+
+    public Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default)
+        => Task.FromResult(CreatedTasks.FirstOrDefault(t => t.Id == id));
 }
