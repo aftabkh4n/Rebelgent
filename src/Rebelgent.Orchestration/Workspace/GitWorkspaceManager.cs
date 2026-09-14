@@ -179,6 +179,72 @@ internal sealed class GitWorkspaceManager : IWorkspaceManager
         return revParseResult.StandardOutput.Trim();
     }
 
+    public async Task<WorkspaceInfo> CreateForPackagingAsync(ProjectDefinition project, Guid taskId, string mergeCommitSha, CancellationToken cancellationToken = default)
+    {
+        var root = _options.Value.RootPath;
+        if (string.IsNullOrWhiteSpace(root))
+            throw new InvalidOperationException("Workspace:RootPath is not configured.");
+
+        if (!Directory.Exists(project.RepositoryPath))
+            throw new InvalidOperationException($"Source repository does not exist: {project.RepositoryPath}");
+
+        if (string.IsNullOrWhiteSpace(mergeCommitSha))
+            throw new ArgumentException("mergeCommitSha must not be empty.", nameof(mergeCommitSha));
+
+        // Fetch so the merged commit is reachable even when local default branch is stale
+        _logger.LogInformation("Fetching from {Remote} before creating package worktree", project.RemoteName);
+        var fetchResult = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["fetch", project.RemoteName],
+            WorkingDirectory = project.RepositoryPath,
+            TimeoutMs = 60_000
+        }, cancellationToken);
+        if (!fetchResult.Success)
+            throw new InvalidOperationException($"git fetch {project.RemoteName} failed: {fetchResult.StandardError}");
+
+        // Verify the commit is reachable after fetch
+        var verifyResult = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["rev-parse", "--verify", mergeCommitSha],
+            WorkingDirectory = project.RepositoryPath,
+            TimeoutMs = 10_000
+        }, cancellationToken);
+        if (!verifyResult.Success)
+            throw new InvalidOperationException(
+                $"Merge commit '{mergeCommitSha}' is not reachable in '{project.RepositoryPath}' after fetch. " +
+                "Ensure the commit exists on the remote.");
+
+        var shortId = taskId.ToString("N")[..8];
+        var workspacePath = Path.Combine(root, $"{project.Id}-{shortId}-package");
+
+        var canonicalRoot = Path.GetFullPath(root);
+        var canonicalWorkspace = Path.GetFullPath(workspacePath);
+        if (!canonicalWorkspace.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Package workspace '{workspacePath}' is outside configured root '{root}'.");
+
+        if (Directory.Exists(workspacePath))
+            throw new InvalidOperationException(
+                $"Package workspace already exists: '{workspacePath}'. " +
+                "Remove it manually (git worktree remove --force) before retrying.");
+
+        _logger.LogInformation("Creating package worktree at {WorkspacePath} from commit {Sha}", workspacePath, mergeCommitSha);
+
+        var addResult = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["worktree", "add", "--detach", workspacePath, mergeCommitSha],
+            WorkingDirectory = project.RepositoryPath,
+            TimeoutMs = 30_000
+        }, cancellationToken);
+
+        if (!addResult.Success)
+            throw new InvalidOperationException($"git worktree add (package) failed: {addResult.StandardError}");
+
+        return new WorkspaceInfo(workspacePath, mergeCommitSha);
+    }
+
     public async Task<WorkspaceInfo> CreateFromBranchAsync(ProjectDefinition project, string existingBranch, string roleSuffix, string? commitSha = null, CancellationToken cancellationToken = default)
     {
         var root = _options.Value.RootPath;

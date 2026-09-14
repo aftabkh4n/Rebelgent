@@ -100,6 +100,9 @@ public class ReleaseOrchestratorTests
         public string? ErrorForValidation { get; set; }
         public CreateReleaseRequest? LastCreateRequest { get; private set; }
 
+        /// <summary>Latest version returned by GetLatestReleaseVersionAsync. Null = no releases.</summary>
+        public string? LatestVersion { get; set; } = null;
+
         public System.Threading.Tasks.Task<GitHubValidationResult> ValidateAsync(CancellationToken ct = default) =>
             System.Threading.Tasks.Task.FromResult(IsReady
                 ? GitHubValidationResult.Ready()
@@ -107,6 +110,9 @@ public class ReleaseOrchestratorTests
 
         public System.Threading.Tasks.Task<bool> TagExistsAsync(string tagName, string repositoryPath, string? gitHubRepository, CancellationToken ct = default) =>
             System.Threading.Tasks.Task.FromResult(TagExists);
+
+        public System.Threading.Tasks.Task<string?> GetLatestReleaseVersionAsync(string repositoryPath, string? gitHubRepository, CancellationToken ct = default) =>
+            System.Threading.Tasks.Task.FromResult(LatestVersion);
 
         public System.Threading.Tasks.Task<ReleaseCreatedResult> CreateReleaseAsync(CreateReleaseRequest request, CancellationToken ct = default)
         {
@@ -615,5 +621,193 @@ public class ReleaseOrchestratorTests
         var result = await orchestrator.ApproveAndPublishAsync(task.Id, CancellationToken.None);
 
         Assert.True(result.Succeeded);
+    }
+
+    // ── Version collision — PrepareAsync queries latest before calling agent ──
+
+    [Fact]
+    public async Task PrepareAsync_NoExistingRelease_Allows100()
+    {
+        // First-ever release: no existing tags → agent suggests 1.0.0 → succeeds
+        var task = MakeTask();
+        var (orchestrator, releaseRepo, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = null; // no prior releases
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "1.0.0", Title = "First release", Notes = "notes", HasBreakingChanges = false };
+
+        var result = await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("1.0.0", result.Version);
+        Assert.NotNull(releaseRepo.Added);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_LatestIs100_AgentSuggestsMinorIncrement_Succeeds()
+    {
+        // Feature work after v1.0.0 → agent should suggest 1.1.0
+        var task = MakeTask();
+        var (orchestrator, releaseRepo, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = "1.0.0";
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "1.1.0", Title = "Feature release", Notes = "notes", HasBreakingChanges = false };
+
+        var result = await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("1.1.0", result.Version);
+        Assert.NotNull(releaseRepo.Added);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_LatestIs100_AgentSuggestsPatchIncrement_Succeeds()
+    {
+        // Bug fix after v1.0.0 → agent should suggest 1.0.1
+        var task = MakeTask();
+        var (orchestrator, _, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = "1.0.0";
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "1.0.1", Title = "Patch", Notes = "notes", HasBreakingChanges = false };
+
+        var result = await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("1.0.1", result.Version);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_LatestIs100_AgentSuggestsMajorIncrement_Succeeds()
+    {
+        // Breaking changes after v1.0.0 → agent may suggest 2.0.0
+        var task = MakeTask();
+        var (orchestrator, _, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = "1.0.0";
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "2.0.0", Title = "Breaking release", Notes = "notes", HasBreakingChanges = true };
+
+        var result = await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("2.0.0", result.Version);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_LatestIs100_AgentSuggestsSameVersion_ReturnsFail()
+    {
+        // v1.0.0 already exists; agent mistakenly suggests v1.0.0 again → rejected
+        var task = MakeTask();
+        var (orchestrator, _, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = "1.0.0";
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "1.0.0", Title = "Duplicate", Notes = "notes", HasBreakingChanges = false };
+
+        var result = await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("not greater than", result.Summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_LatestIs110_AgentSuggestsOlderVersion_ReturnsFail()
+    {
+        // Latest is 1.1.0; agent incorrectly suggests 1.0.5 → rejected
+        var task = MakeTask();
+        var (orchestrator, _, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = "1.1.0";
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "1.0.5", Title = "Old", Notes = "notes", HasBreakingChanges = false };
+
+        var result = await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("not greater than", result.Summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_ProposedTagAlreadyExists_RejectedDuringPreparation()
+    {
+        // v1.1.0 is proposed but that exact tag already exists on GitHub → rejected during PrepareAsync
+        var task = MakeTask();
+        var (orchestrator, _, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = "1.0.0"; // latest is 1.0.0 so 1.1.0 > 1.0.0 passes version check
+        releaseService.TagExists = true;         // but tag v1.1.0 already exists on GitHub
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "1.1.0", Title = "Feature", Notes = "notes", HasBreakingChanges = false };
+
+        var result = await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.False(result.Succeeded);
+        Assert.Contains("already exists", result.Summary, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_MalformedExistingTags_IgnoredSafely_AgentCanSuggest100()
+    {
+        // GetLatestReleaseVersionAsync returns null if all tags are malformed
+        // → treated the same as "no releases exist" → agent can suggest 1.0.0
+        var task = MakeTask();
+        var (orchestrator, releaseRepo, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = null; // malformed tags filtered out → returns null
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "1.0.0", Title = "First", Notes = "notes", HasBreakingChanges = false };
+
+        var result = await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.NotNull(releaseRepo.Added);
+    }
+
+    [Fact]
+    public async Task PrepareAsync_LatestVersion_PassedToReleaseNotesAgent()
+    {
+        // Verify that PrepareAsync passes PreviousVersion to the agent
+        var task = MakeTask();
+        string? capturedPreviousVersion = null;
+        var task2 = MakeTask(); // unused, just to enable capture
+
+        var taskService = new FakeTaskService { Task = task };
+        var executionRepo = new FakeExecutionRepo { QaExecution = MakeQaExecution(), ReviewerExecution = MakeReviewerExecution() };
+        var releaseRepo = new FakeReleaseRepository();
+        var provider = new FakeServiceProvider(taskService, executionRepo, releaseRepo);
+        var scopeFactory = new FakeScopeFactory(provider);
+        var registry = new FakeProjectRegistry([SandboxProject]);
+        var releaseService = new FakeReleaseService { LatestVersion = "2.3.4" };
+
+        // Use a capturing agent
+        var capturingAgent = new CapturingReleaseNotesAgent(v => capturedPreviousVersion = v);
+        var orchestrator = new ReleaseOrchestrator(scopeFactory, registry, capturingAgent, releaseService, NullLogger<ReleaseOrchestrator>.Instance);
+
+        await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.Equal("2.3.4", capturedPreviousVersion);
+    }
+
+    // ── Package version still matches published release version after M8 ──────
+
+    [Fact]
+    public async Task PrepareAsync_AllValid_VersionStoredInRelease()
+    {
+        // Ensures the version from the agent is what gets stored (required by PackageOrchestrator to validate version match)
+        var task = MakeTask();
+        var (orchestrator, releaseRepo, notesAgent, releaseService) = Build(task, MakeQaExecution(), MakeReviewerExecution());
+        releaseService.LatestVersion = "1.4.2";
+        notesAgent.Output = new ReleaseNotesOutput { Succeeded = true, Version = "1.5.0", Title = "Feature", Notes = "notes", HasBreakingChanges = false };
+
+        await orchestrator.PrepareAsync(task.Id, CancellationToken.None);
+
+        Assert.NotNull(releaseRepo.Added);
+        Assert.Equal("1.5.0", releaseRepo.Added!.Version);
+    }
+
+    // Helper: a release notes agent that captures the PreviousVersion it received
+    private sealed class CapturingReleaseNotesAgent : IReleaseNotesAgent
+    {
+        private readonly Action<string?> _capture;
+        public CapturingReleaseNotesAgent(Action<string?> capture) => _capture = capture;
+
+        public System.Threading.Tasks.Task<ReleaseNotesOutput> PrepareAsync(ReleaseNotesInput input, CancellationToken ct = default)
+        {
+            _capture(input.PreviousVersion);
+            return System.Threading.Tasks.Task.FromResult(new ReleaseNotesOutput
+            {
+                Succeeded = true,
+                Version = "3.0.0",
+                Title = "Major release",
+                Notes = "notes",
+                HasBreakingChanges = true
+            });
+        }
     }
 }

@@ -11,6 +11,13 @@ public interface IWorkspaceManager
     Task<WorkspaceInfo> CreateFromBranchAsync(ProjectDefinition project, string existingBranch, string roleSuffix, string? commitSha = null, CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Fetches from remote, verifies the merge commit SHA is reachable, then creates a detached worktree at
+    /// that exact commit. Used for NuGet packaging to guarantee the merged code is present regardless of
+    /// whether the local default branch has been updated. Never modifies the source repository.
+    /// </summary>
+    Task<WorkspaceInfo> CreateForPackagingAsync(ProjectDefinition project, Guid taskId, string mergeCommitSha, CancellationToken cancellationToken = default);
+
+    /// <summary>
     /// Stages all changes in the worktree (respecting .gitignore) and commits them.
     /// Returns the resulting commit SHA. If there is nothing to commit, returns the current HEAD SHA without creating a commit.
     /// </summary>

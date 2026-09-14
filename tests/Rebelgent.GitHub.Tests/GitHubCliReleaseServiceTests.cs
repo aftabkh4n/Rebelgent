@@ -223,4 +223,106 @@ public class GitHubCliReleaseServiceTests
         Assert.Contains("release", call.Arguments);
         Assert.Contains("create", call.Arguments);
     }
+
+    // ── GetLatestReleaseVersionAsync ─────────────────────────────────────────
+
+    [Fact]
+    public async Task GetLatestReleaseVersionAsync_MultipleReleases_ReturnsHighest()
+    {
+        var json = """[{"tagName":"v1.0.0"},{"tagName":"v1.2.3"},{"tagName":"v1.1.0"}]""";
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok(json));
+
+        var result = await BuildService(fake).GetLatestReleaseVersionAsync(@"C:\repos\sandbox", null, CancellationToken.None);
+
+        Assert.Equal("1.2.3", result);
+    }
+
+    [Fact]
+    public async Task GetLatestReleaseVersionAsync_MixedMalformedTags_IgnoresMalformed()
+    {
+        var json = """[{"tagName":"v1.0.0"},{"tagName":"latest"},{"tagName":"not-valid"},{"tagName":"v0.9.9"}]""";
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok(json));
+
+        var result = await BuildService(fake).GetLatestReleaseVersionAsync(@"C:\repos\sandbox", null, CancellationToken.None);
+
+        Assert.Equal("1.0.0", result);
+    }
+
+    [Fact]
+    public async Task GetLatestReleaseVersionAsync_GhFails_ReturnsNull()
+    {
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Fail("HTTP 403: Forbidden"));
+
+        var result = await BuildService(fake).GetLatestReleaseVersionAsync(@"C:\repos\sandbox", null, CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetLatestReleaseVersionAsync_EmptyJson_ReturnsNull()
+    {
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok("[]"));
+
+        var result = await BuildService(fake).GetLatestReleaseVersionAsync(@"C:\repos\sandbox", null, CancellationToken.None);
+
+        Assert.Null(result);
+    }
+
+    [Fact]
+    public async Task GetLatestReleaseVersionAsync_WithGitHubRepository_PassesRepoFlag()
+    {
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok("""[{"tagName":"v1.0.0"}]"""));
+
+        await BuildService(fake).GetLatestReleaseVersionAsync(@"C:\repos\sandbox", "myorg/myrepo", CancellationToken.None);
+
+        var call = fake.Calls[0];
+        Assert.Contains("--repo", call.Arguments);
+        Assert.Contains("myorg/myrepo", call.Arguments);
+    }
+
+    [Fact]
+    public async Task GetLatestReleaseVersionAsync_WithoutGitHubRepository_NoRepoFlag()
+    {
+        var fake = new FakeProcessRunner();
+        fake.Enqueue(Ok("""[{"tagName":"v1.0.0"}]"""));
+
+        await BuildService(fake).GetLatestReleaseVersionAsync(@"C:\repos\sandbox", null, CancellationToken.None);
+
+        var call = fake.Calls[0];
+        Assert.DoesNotContain("--repo", call.Arguments);
+    }
+
+    // ── ParseLatestVersionFromJson (internal, tested directly) ───────────────
+
+    [Fact]
+    public void ParseLatestVersionFromJson_ValidJson_ReturnsHighest()
+    {
+        var json = """[{"tagName":"v1.0.0"},{"tagName":"v2.0.0"},{"tagName":"v1.5.0"}]""";
+        Assert.Equal("2.0.0", GitHubCliReleaseService.ParseLatestVersionFromJson(json));
+    }
+
+    [Fact]
+    public void ParseLatestVersionFromJson_Empty_ReturnsNull()
+    {
+        Assert.Null(GitHubCliReleaseService.ParseLatestVersionFromJson("[]"));
+    }
+
+    [Fact]
+    public void ParseLatestVersionFromJson_NullOrWhitespace_ReturnsNull()
+    {
+        Assert.Null(GitHubCliReleaseService.ParseLatestVersionFromJson(null!));
+        Assert.Null(GitHubCliReleaseService.ParseLatestVersionFromJson(""));
+        Assert.Null(GitHubCliReleaseService.ParseLatestVersionFromJson("   "));
+    }
+
+    [Fact]
+    public void ParseLatestVersionFromJson_MalformedJson_ReturnsNull()
+    {
+        Assert.Null(GitHubCliReleaseService.ParseLatestVersionFromJson("not-json"));
+    }
 }

@@ -167,6 +167,47 @@ namespace Rebelgent.Persistence.Migrations
                     b.ToTable("AgentTasks", (string)null);
                 });
 
+            modelBuilder.Entity("Rebelgent.Persistence.Records.PackageDbRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("TaskId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PackageId")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PackageVersion")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PackagePath")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("PreparedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("PublishedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TaskId")
+                        .IsUnique();
+
+                    b.ToTable("Packages", (string)null);
+                });
+
             modelBuilder.Entity("Rebelgent.Persistence.Records.ApprovalRequestRecord", b =>
                 {
                     b.Property<Guid>("Id")

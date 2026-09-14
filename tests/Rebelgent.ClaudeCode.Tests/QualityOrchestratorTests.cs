@@ -64,6 +64,7 @@ public class QualityOrchestratorTests
             throw new InvalidOperationException("Stopped after worktree creation for test isolation.");
         }
 
+        public Task<WorkspaceInfo> CreateForPackagingAsync(ProjectDefinition p, Guid taskId, string mergeCommitSha, CancellationToken ct = default) => throw new NotImplementedException();
         public Task<string> CommitAsync(string path, string msg, CancellationToken ct = default) => throw new NotImplementedException();
         public Task RemoveAsync(string path, CancellationToken ct = default) => System.Threading.Tasks.Task.CompletedTask;
     }

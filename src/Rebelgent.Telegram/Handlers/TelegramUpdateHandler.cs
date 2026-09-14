@@ -3,6 +3,7 @@ using Rebelgent.Core.Domain;
 using Rebelgent.Core.Repositories;
 using Rebelgent.Core.Services;
 using Rebelgent.GitHub;
+using Rebelgent.GitHub.Package;
 using Rebelgent.GitHub.Release;
 using Rebelgent.Orchestration.Orchestrator;
 using Rebelgent.Orchestration.Projects;
@@ -30,6 +31,7 @@ public class TelegramUpdateHandler
     private readonly IPullRequestOrchestrator _pullRequestOrchestrator;
     private readonly IMergeOrchestrator _mergeOrchestrator;
     private readonly IReleaseOrchestrator _releaseOrchestrator;
+    private readonly IPackageOrchestrator _packageOrchestrator;
     private readonly IAgentExecutionRepository _executionRepository;
     private readonly ILogger<TelegramUpdateHandler> _logger;
 
@@ -43,6 +45,7 @@ public class TelegramUpdateHandler
         IPullRequestOrchestrator pullRequestOrchestrator,
         IMergeOrchestrator mergeOrchestrator,
         IReleaseOrchestrator releaseOrchestrator,
+        IPackageOrchestrator packageOrchestrator,
         IAgentExecutionRepository executionRepository,
         ILogger<TelegramUpdateHandler> logger)
     {
@@ -55,6 +58,7 @@ public class TelegramUpdateHandler
         _pullRequestOrchestrator = pullRequestOrchestrator;
         _mergeOrchestrator = mergeOrchestrator;
         _releaseOrchestrator = releaseOrchestrator;
+        _packageOrchestrator = packageOrchestrator;
         _executionRepository = executionRepository;
         _logger = logger;
     }
@@ -112,7 +116,10 @@ public class TelegramUpdateHandler
                     "/mergeinfo <taskId> — show merge info for a task\n" +
                     "/release <taskId> — prepare release notes (runs Release Manager)\n" +
                     "/release <taskId> approve — create the GitHub release\n" +
-                    "/releaseinfo <taskId> — show release info for a task\n\n" +
+                    "/releaseinfo <taskId> — show release info for a task\n" +
+                    "/package <taskId> — prepare NuGet package (requires published GitHub release)\n" +
+                    "/package <taskId> approve — publish the package to NuGet (requires human approval)\n" +
+                    "/packageinfo <taskId> — show package info for a task\n\n" +
                     "To create a task with the default project, send any non-command message.",
                     cancellationToken);
                 break;
@@ -171,6 +178,14 @@ public class TelegramUpdateHandler
 
             case "/releaseinfo":
                 await HandleReleaseInfoCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/package":
+                await HandlePackageCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/packageinfo":
+                await HandlePackageInfoCommandAsync(chatId, rawText, cancellationToken);
                 break;
 
             default:
@@ -886,6 +901,145 @@ public class TelegramUpdateHandler
             $"Commit: {task.MergeCommitSha}\n" +
             $"Merged: {task.MergedAt:yyyy-MM-dd HH:mm} UTC",
             cancellationToken);
+    }
+
+    private async Task HandlePackageCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        // /package <taskId>           — prepare package (dotnet pack)
+        // /package <taskId> approve   — approve and publish to NuGet
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /package <taskId> [approve]", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        var isApprove = parts.Length >= 3 && string.Equals(parts[2], "approve", StringComparison.OrdinalIgnoreCase);
+
+        if (isApprove)
+        {
+            await _sender.SendTextAsync(chatId,
+                $"Publishing package for task [{task.Id.ToString("N")[..8]}] {task.Title}...\n" +
+                "You will receive a result when it completes.",
+                cancellationToken);
+
+            var taskId = task.Id;
+            var orchestrator = _packageOrchestrator;
+            var sender = _sender;
+            var logger = _logger;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await orchestrator.ApproveAndPublishAsync(taskId, CancellationToken.None);
+                    var symbol = result.Succeeded ? "✅" : "❌";
+                    await sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Unhandled exception during package publish for task {TaskId}", taskId);
+                    await sender.SendTextAsync(chatId, "An unexpected error occurred during package publishing.", CancellationToken.None);
+                }
+            });
+        }
+        else
+        {
+            await _sender.SendTextAsync(chatId,
+                $"Preparing package for task [{task.Id.ToString("N")[..8]}] {task.Title}...\n" +
+                "You will receive a result when it completes.",
+                cancellationToken);
+
+            var taskId = task.Id;
+            var orchestrator = _packageOrchestrator;
+            var sender = _sender;
+            var logger = _logger;
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var result = await orchestrator.PrepareAsync(taskId, CancellationToken.None);
+                    var symbol = result.Succeeded ? "✅" : "❌";
+                    await sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", CancellationToken.None);
+                }
+                catch (Exception ex)
+                {
+                    logger.LogError(ex, "Unhandled exception during package preparation for task {TaskId}", taskId);
+                    await sender.SendTextAsync(chatId, "An unexpected error occurred during package preparation.", CancellationToken.None);
+                }
+            });
+        }
+    }
+
+    private async Task HandlePackageInfoCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /packageinfo <taskId>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        var shortId = task.Id.ToString("N")[..8];
+
+        try
+        {
+            var result = await _packageOrchestrator.GetInfoAsync(task.Id, cancellationToken);
+
+            if (!result.Succeeded)
+            {
+                await _sender.SendTextAsync(chatId,
+                    $"Task [{shortId}] {task.Title}\nNo package prepared yet. Use /package {shortId} to prepare.",
+                    cancellationToken);
+                return;
+            }
+
+            var publishedLine = result.PublishedAt.HasValue
+                ? $"\nPublished: {result.PublishedAt.Value:yyyy-MM-dd HH:mm} UTC"
+                : string.Empty;
+
+            await _sender.SendTextAsync(chatId,
+                $"Task [{shortId}] {task.Title}\n" +
+                $"Package: {result.PackageId} {result.PackageVersion}\n" +
+                $"Status: {result.Status}\n" +
+                $"Prepared: {result.PreparedAt:yyyy-MM-dd HH:mm} UTC" +
+                publishedLine,
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to retrieve package info for task prefix {Prefix}", prefix);
+            await _sender.SendTextAsync(chatId, "Unable to retrieve package info right now.", cancellationToken);
+        }
     }
 
     private async Task HandleTaskRequestAsync(long chatId, string text, CancellationToken cancellationToken)
