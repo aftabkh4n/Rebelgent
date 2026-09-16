@@ -40,4 +40,10 @@ internal sealed class EfReleaseRepository : IReleaseRepository
 
         await _db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<Release>> GetAllAsync(CancellationToken cancellationToken = default)
+    {
+        var records = await _db.Releases.ToListAsync(cancellationToken);
+        return records.Select(r => r.ToDomain()).ToList();
+    }
 }

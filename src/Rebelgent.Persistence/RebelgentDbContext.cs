@@ -11,6 +11,9 @@ public class RebelgentDbContext : DbContext
     internal DbSet<AgentExecutionDbRecord> AgentExecutions => Set<AgentExecutionDbRecord>();
     internal DbSet<ReleaseDbRecord> Releases => Set<ReleaseDbRecord>();
     internal DbSet<PackageDbRecord> Packages => Set<PackageDbRecord>();
+    internal DbSet<ExecutionFailureDbRecord> ExecutionFailures => Set<ExecutionFailureDbRecord>();
+    internal DbSet<ImprovementProposalDbRecord> ImprovementProposals => Set<ImprovementProposalDbRecord>();
+    internal DbSet<EvaluationResultDbRecord> EvaluationResults => Set<EvaluationResultDbRecord>();
 
     public RebelgentDbContext(DbContextOptions<RebelgentDbContext> options) : base(options) { }
 
@@ -76,6 +79,51 @@ public class RebelgentDbContext : DbContext
             entity.Property(e => e.Description).IsRequired();
             entity.Property(e => e.RequestedAt).IsRequired();
             entity.HasIndex(e => e.TaskId);
+        });
+
+        modelBuilder.Entity<ExecutionFailureDbRecord>(entity =>
+        {
+            entity.ToTable("ExecutionFailures");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TaskId).IsRequired();
+            entity.Property(e => e.Category).IsRequired();
+            entity.Property(e => e.Source).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.Message).IsRequired();
+            entity.Property(e => e.DetectedAt).IsRequired().HasColumnType("INTEGER");
+            entity.HasIndex(e => e.TaskId);
+            entity.HasIndex(e => e.Category);
+            entity.HasIndex(e => e.ExecutionId);
+        });
+
+        modelBuilder.Entity<ImprovementProposalDbRecord>(entity =>
+        {
+            entity.ToTable("ImprovementProposals");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TargetProjectId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Title).IsRequired().HasMaxLength(500);
+            entity.Property(e => e.Description).IsRequired();
+            entity.Property(e => e.Evidence).IsRequired();
+            entity.Property(e => e.TargetArea).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.SuggestedChange).IsRequired();
+            entity.Property(e => e.RiskLevel).IsRequired();
+            entity.Property(e => e.Status).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.EvidenceFingerprint).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.DecidedAt).HasColumnType("INTEGER");
+            entity.HasIndex(e => e.EvidenceFingerprint);
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.TargetProjectId);
+        });
+
+        modelBuilder.Entity<EvaluationResultDbRecord>(entity =>
+        {
+            entity.ToTable("EvaluationResults");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ProposalId).IsRequired();
+            entity.Property(e => e.DatasetName).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.CasesJson).IsRequired();
+            entity.Property(e => e.EvaluatedAt).IsRequired().HasColumnType("INTEGER");
+            entity.HasIndex(e => e.ProposalId);
         });
 
         modelBuilder.Entity<AgentExecutionDbRecord>(entity =>

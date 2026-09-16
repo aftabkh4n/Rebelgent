@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using Rebelgent.ClaudeCode.Improvement;
 using Rebelgent.Core.Domain;
 using Rebelgent.Core.Repositories;
 using Rebelgent.Core.Services;
@@ -32,6 +33,7 @@ public class TelegramUpdateHandler
     private readonly IMergeOrchestrator _mergeOrchestrator;
     private readonly IReleaseOrchestrator _releaseOrchestrator;
     private readonly IPackageOrchestrator _packageOrchestrator;
+    private readonly IImprovementOrchestrator _improvementOrchestrator;
     private readonly IAgentExecutionRepository _executionRepository;
     private readonly ILogger<TelegramUpdateHandler> _logger;
 
@@ -46,6 +48,7 @@ public class TelegramUpdateHandler
         IMergeOrchestrator mergeOrchestrator,
         IReleaseOrchestrator releaseOrchestrator,
         IPackageOrchestrator packageOrchestrator,
+        IImprovementOrchestrator improvementOrchestrator,
         IAgentExecutionRepository executionRepository,
         ILogger<TelegramUpdateHandler> logger)
     {
@@ -59,6 +62,7 @@ public class TelegramUpdateHandler
         _mergeOrchestrator = mergeOrchestrator;
         _releaseOrchestrator = releaseOrchestrator;
         _packageOrchestrator = packageOrchestrator;
+        _improvementOrchestrator = improvementOrchestrator;
         _executionRepository = executionRepository;
         _logger = logger;
     }
@@ -119,7 +123,14 @@ public class TelegramUpdateHandler
                     "/releaseinfo <taskId> — show release info for a task\n" +
                     "/package <taskId> — prepare NuGet package (requires published GitHub release)\n" +
                     "/package <taskId> approve — publish the package to NuGet (requires human approval)\n" +
-                    "/packageinfo <taskId> — show package info for a task\n\n" +
+                    "/packageinfo <taskId> — show package info for a task\n" +
+                    "/metrics — show Rebelgent's own operational metrics\n" +
+                    "/failures — show recent categorized execution failures\n" +
+                    "/improvements — list self-improvement proposals\n" +
+                    "/improvement <id> — show proposal detail\n" +
+                    "/improve analyze — analyze history and create proposals (no code changes)\n" +
+                    "/improvement <id> approve — human approval; creates a normal task (does not run it)\n" +
+                    "/improvement <id> reject — reject a proposal\n\n" +
                     "To create a task with the default project, send any non-command message.",
                     cancellationToken);
                 break;
@@ -186,6 +197,26 @@ public class TelegramUpdateHandler
 
             case "/packageinfo":
                 await HandlePackageInfoCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/metrics":
+                await HandleMetricsCommandAsync(chatId, cancellationToken);
+                break;
+
+            case "/failures":
+                await HandleFailuresCommandAsync(chatId, cancellationToken);
+                break;
+
+            case "/improvements":
+                await HandleImprovementsCommandAsync(chatId, cancellationToken);
+                break;
+
+            case "/improvement":
+                await HandleImprovementCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/improve":
+                await HandleImproveCommandAsync(chatId, rawText, cancellationToken);
                 break;
 
             default:
@@ -1041,6 +1072,211 @@ public class TelegramUpdateHandler
             await _sender.SendTextAsync(chatId, "Unable to retrieve package info right now.", cancellationToken);
         }
     }
+
+    private async Task HandleMetricsCommandAsync(long chatId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var metrics = await _improvementOrchestrator.GetMetricsAsync(cancellationToken);
+            var categoryLines = metrics.FailuresByCategory.Count == 0
+                ? "  (none)"
+                : string.Join("\n", metrics.FailuresByCategory
+                    .OrderByDescending(kv => kv.Value)
+                    .Select(kv => $"  {kv.Key}: {kv.Value}"));
+
+            await _sender.SendTextAsync(chatId,
+                $"Rebelgent metrics (as of {metrics.GeneratedAt:yyyy-MM-dd HH:mm} UTC)\n" +
+                $"Total tasks: {metrics.TotalTasks}\n" +
+                $"Task success rate: {metrics.TaskSuccessRate:P0}\n" +
+                $"Developer failure rate: {metrics.DeveloperFailureRate:P0}\n" +
+                $"QA pass rate: {metrics.QaPassRate:P0}\n" +
+                $"Review approval rate: {metrics.ReviewApprovalRate:P0}\n" +
+                $"Average retries per task: {metrics.AverageRetriesPerTask:F2}\n" +
+                $"Release failure rate: {metrics.ReleaseFailureRate:P0}\n" +
+                $"Package failure rate: {metrics.PackageFailureRate:P0}\n" +
+                $"Failures by category:\n{categoryLines}",
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to compute metrics for /metrics");
+            await _sender.SendTextAsync(chatId, "Unable to compute metrics right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleFailuresCommandAsync(long chatId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var failures = await _improvementOrchestrator.GetRecentFailuresAsync(10, cancellationToken);
+            if (failures.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId,
+                    "No categorized failures recorded yet. Run /improve analyze to analyze history.",
+                    cancellationToken);
+                return;
+            }
+
+            var lines = failures.Select(f =>
+                $"[{f.DetectedAt:yyyy-MM-dd HH:mm} UTC] {f.Category} — {f.Source}\n  {Truncate(f.Message, 200)}");
+
+            await _sender.SendTextAsync(chatId, "Recent categorized failures:\n\n" + string.Join("\n\n", lines), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to retrieve failures for /failures");
+            await _sender.SendTextAsync(chatId, "Unable to retrieve failures right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleImprovementsCommandAsync(long chatId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var proposals = await _improvementOrchestrator.GetProposalsAsync(cancellationToken);
+            if (proposals.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId,
+                    "No improvement proposals yet. Run /improve analyze to generate some.",
+                    cancellationToken);
+                return;
+            }
+
+            var lines = proposals.Take(20).Select(p =>
+                $"[{p.Id.ToString("N")[..8]}] {p.Title}\n  Status: {p.Status}  Risk: {p.RiskLevel}  Target: {p.TargetArea}");
+
+            await _sender.SendTextAsync(chatId, "Improvement proposals:\n\n" + string.Join("\n\n", lines), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to retrieve proposals for /improvements");
+            await _sender.SendTextAsync(chatId, "Unable to retrieve improvement proposals right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleImprovementCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        // /improvement <id>           — show proposal detail
+        // /improvement <id> approve   — human approval; creates a normal AgentTask (does not run it)
+        // /improvement <id> reject    — human rejection
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /improvement <id> [approve|reject]", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        List<ImprovementProposal> matches;
+        try
+        {
+            var all = await _improvementOrchestrator.GetProposalsAsync(cancellationToken);
+            matches = all.Where(p => p.Id.ToString("N").StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to resolve improvement proposal for prefix {Prefix}", prefix);
+            await _sender.SendTextAsync(chatId, "Unable to look up improvement proposals right now.", cancellationToken);
+            return;
+        }
+
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No improvement proposal found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous improvement ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var proposal = matches[0];
+
+        if (parts.Length == 2)
+        {
+            var shortId = proposal.Id.ToString("N")[..8];
+            var taskLine = proposal.CreatedTaskId is not null
+                ? $"\nCreated task: [{proposal.CreatedTaskId.Value.ToString("N")[..8]}]"
+                : string.Empty;
+            var evalLine = proposal.EvaluationSummary is not null
+                ? $"\nEvaluation: {proposal.EvaluationSummary}"
+                : string.Empty;
+
+            await _sender.SendTextAsync(chatId,
+                $"Improvement [{shortId}] {proposal.Title}\n" +
+                $"Status: {proposal.Status}\n" +
+                $"Risk: {proposal.RiskLevel}\n" +
+                $"Target area: {proposal.TargetArea}\n" +
+                $"Suggested change: {proposal.SuggestedChange}\n" +
+                $"Description: {proposal.Description}" +
+                evalLine + taskLine,
+                cancellationToken);
+            return;
+        }
+
+        var decision = parts[2].ToLowerInvariant();
+        if (decision is not ("approve" or "reject"))
+        {
+            await _sender.SendTextAsync(chatId, "Decision must be: approve or reject", cancellationToken);
+            return;
+        }
+
+        try
+        {
+            var result = decision == "approve"
+                ? await _improvementOrchestrator.ApproveAsync(proposal.Id, cancellationToken)
+                : await _improvementOrchestrator.RejectAsync(proposal.Id, cancellationToken);
+
+            var symbol = result.Succeeded ? "✅" : "❌";
+            await _sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to {Decision} improvement proposal {ProposalId}", decision, proposal.Id);
+            await _sender.SendTextAsync(chatId, $"An unexpected error occurred while trying to {decision} the proposal.", cancellationToken);
+        }
+    }
+
+    private async Task HandleImproveCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        // /improve analyze — analyzes persisted history and creates proposals only.
+        // Never makes code changes, never modifies agent prompts or CLAUDE.md, never creates or runs a task.
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !string.Equals(parts[1], "analyze", StringComparison.OrdinalIgnoreCase))
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /improve analyze", cancellationToken);
+            return;
+        }
+
+        await _sender.SendTextAsync(chatId,
+            "Analyzing task history for recurring failure patterns...\n" +
+            "This only creates proposals — no code changes are made.\n" +
+            "You will receive a result when it completes.",
+            cancellationToken);
+
+        var orchestrator = _improvementOrchestrator;
+        var sender = _sender;
+        var logger = _logger;
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await orchestrator.AnalyzeAsync(CancellationToken.None);
+                var symbol = result.Succeeded ? "✅" : "❌";
+                await sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unhandled exception during improvement analysis");
+                await sender.SendTextAsync(chatId, "An unexpected error occurred during improvement analysis.", CancellationToken.None);
+            }
+        });
+    }
+
+    private static string Truncate(string text, int maxLength) =>
+        text.Length <= maxLength ? text : text[..maxLength] + "...";
 
     private async Task HandleTaskRequestAsync(long chatId, string text, CancellationToken cancellationToken)
     {

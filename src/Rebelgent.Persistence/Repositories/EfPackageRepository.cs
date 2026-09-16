@@ -48,4 +48,10 @@ internal sealed class EfPackageRepository : IPackageRepository
 
         await _db.SaveChangesAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<Package>> GetAllAsync(CancellationToken cancellationToken = default)
+    {
+        var records = await _db.Packages.ToListAsync(cancellationToken);
+        return records.Select(r => r.ToDomain()).ToList();
+    }
 }

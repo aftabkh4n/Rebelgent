@@ -38,7 +38,7 @@ public class TelegramPackageCommandTests
             taskService, sender, auth, projectRegistry,
             new FakeTaskOrchestrator(), new FakeQualityOrchestrator(),
             new FakePullRequestOrchestrator(), new FakeMergeOrchestrator(),
-            new FakeReleaseOrchestrator(), packageOrchestrator,
+            new FakeReleaseOrchestrator(), packageOrchestrator, new FakeImprovementOrchestrator(),
             new FakeExecutionRepository(), NullLogger<TelegramUpdateHandler>.Instance);
 
         return (handler, taskService, sender, packageOrchestrator);

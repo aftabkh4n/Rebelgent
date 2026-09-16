@@ -16,5 +16,6 @@ public enum AgentRole
     DocumentationWriter,
     ReleaseManager,
     TechnicalWriter,
-    CommunityManager
+    CommunityManager,
+    ImprovementAnalyst
 }

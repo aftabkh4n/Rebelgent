@@ -2,6 +2,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Rebelgent.Core\Rebelgent.Core.csproj" />
+    <ProjectReference Include="..\Rebelgent.ClaudeCode\Rebelgent.ClaudeCode.csproj" />
     <ProjectReference Include="..\Rebelgent.GitHub\Rebelgent.GitHub.csproj" />
     <ProjectReference Include="..\Rebelgent.Orchestration\Rebelgent.Orchestration.csproj" />
   </ItemGroup>

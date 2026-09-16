@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Rebelgent.ClaudeCode.Improvement;
 using Rebelgent.ClaudeCode.Process;
 using Rebelgent.ClaudeCode.QualityOrchestration;
 using Rebelgent.ClaudeCode.ReleaseNotes;
@@ -17,6 +18,8 @@ public static class ClaudeCodeServiceExtensions
         services.AddSingleton<ICodingAgentRunner, ClaudeCodeRunner>();
         services.AddSingleton<IQualityOrchestrator, QualityOrchestrator>();
         services.AddSingleton<IReleaseNotesAgent, ClaudeCodeReleaseNotesAgent>();
+        services.AddSingleton<IImprovementAnalystAgent, ClaudeCodeImprovementAnalystAgent>();
+        services.AddSingleton<IImprovementOrchestrator, ImprovementOrchestrator>();
 
         return services;
     }
