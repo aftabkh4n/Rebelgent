@@ -75,6 +75,10 @@ public class ReleaseOrchestratorTests
             Updated = release;
             return System.Threading.Tasks.Task.CompletedTask;
         }
+
+        public System.Threading.Tasks.Task<IReadOnlyList<Core.Domain.Release>> GetAllAsync(CancellationToken ct = default) =>
+            System.Threading.Tasks.Task.FromResult<IReadOnlyList<Core.Domain.Release>>(
+                ExistingRelease is null ? [] : [ExistingRelease]);
     }
 
     private sealed class FakeReleaseNotesAgent : IReleaseNotesAgent

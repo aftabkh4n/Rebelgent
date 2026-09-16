@@ -26,6 +26,7 @@ internal sealed class SafeProcessRunner : IProcessRunner
             UseShellExecute = false,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = options.CloseStdinImmediately,
             CreateNoWindow = true,
         };
 
@@ -34,6 +35,9 @@ internal sealed class SafeProcessRunner : IProcessRunner
 
         if (options.WorkingDirectory is not null)
             psi.WorkingDirectory = options.WorkingDirectory;
+
+        foreach (var (key, value) in options.EnvironmentVariables)
+            psi.Environment[key] = value;
 
         var argsForLog = options.SecretArgumentIndices.Count == 0
             ? (IEnumerable<string>)options.Arguments
@@ -60,6 +64,8 @@ internal sealed class SafeProcessRunner : IProcessRunner
         };
 
         process.Start();
+        if (options.CloseStdinImmediately)
+            process.StandardInput.Close();
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
 

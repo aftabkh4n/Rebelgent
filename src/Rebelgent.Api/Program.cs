@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Rebelgent.ClaudeCode.DependencyInjection;
+using Rebelgent.ClaudeCode.Improvement;
 using Rebelgent.ClaudeCode.Options;
 using Rebelgent.GitHub.DependencyInjection;
 using Rebelgent.Contracts.Requests;
@@ -30,6 +31,8 @@ builder.Services.Configure<ProjectRegistryOptions>(
     builder.Configuration.GetSection(ProjectRegistryOptions.SectionName));
 builder.Services.Configure<ClaudeCodeOptions>(
     builder.Configuration.GetSection(ClaudeCodeOptions.SectionName));
+builder.Services.Configure<SelfImprovementOptions>(
+    builder.Configuration.GetSection(SelfImprovementOptions.SectionName));
 
 // Core services and agent registry
 builder.Services.AddRebelgent();

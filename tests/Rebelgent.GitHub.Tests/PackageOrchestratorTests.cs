@@ -50,6 +50,9 @@ public class PackageOrchestratorTests
             Updated = package;
             return System.Threading.Tasks.Task.CompletedTask;
         }
+
+        public System.Threading.Tasks.Task<IReadOnlyList<DomainPackage>> GetAllAsync(CancellationToken ct = default) =>
+            System.Threading.Tasks.Task.FromResult<IReadOnlyList<DomainPackage>>(Existing is null ? [] : [Existing]);
     }
 
     private sealed class FakeReleaseRepository : IReleaseRepository
@@ -59,6 +62,9 @@ public class PackageOrchestratorTests
             System.Threading.Tasks.Task.FromResult(ExistingRelease);
         public System.Threading.Tasks.Task AddAsync(Core.Domain.Release release, CancellationToken ct = default) => System.Threading.Tasks.Task.CompletedTask;
         public System.Threading.Tasks.Task UpdateAsync(Core.Domain.Release release, CancellationToken ct = default) => System.Threading.Tasks.Task.CompletedTask;
+        public System.Threading.Tasks.Task<IReadOnlyList<Core.Domain.Release>> GetAllAsync(CancellationToken ct = default) =>
+            System.Threading.Tasks.Task.FromResult<IReadOnlyList<Core.Domain.Release>>(
+                ExistingRelease is null ? [] : [ExistingRelease]);
     }
 
     private sealed class FakeExecutionRepo : IAgentExecutionRepository

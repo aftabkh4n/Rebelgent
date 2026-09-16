@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Rebelgent.Agents;
+using Rebelgent.Core.Observability;
 using Rebelgent.Core.Services;
 using Rebelgent.Infrastructure.Services;
 
@@ -14,6 +15,11 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IAgentRegistry, AgentRegistry>();
         services.AddSingleton<TaskLifecycleService>();
         services.AddScoped<ITaskService, TaskService>();
+        // No exporter is wired up by default — Rebelgent runs fully locally at $0.
+        // Swap in a future Langfuse/OpenTelemetry adapter project here if one is added.
+        services.AddSingleton<IObservabilityExporter, NullObservabilityExporter>();
+        services.AddScoped<IExecutionAnalysisService, ExecutionAnalysisService>();
+        services.AddScoped<IMetricsCalculator, MetricsCalculator>();
         return services;
     }
 }
