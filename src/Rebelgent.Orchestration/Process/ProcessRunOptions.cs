@@ -20,4 +20,19 @@ public sealed class ProcessRunOptions
     /// Only the debug-log entry is replaced with "***" at these positions.
     /// </summary>
     public IReadOnlyCollection<int> SecretArgumentIndices { get; init; } = [];
+
+    /// <summary>
+    /// When <see langword="true"/>, stdin is redirected and immediately closed after the process
+    /// starts so the child receives EOF at once. Use when the prompt is supplied entirely via
+    /// CLI arguments (e.g. <c>--print "&lt;prompt&gt;"</c>) and the process must not wait for
+    /// inherited stdin from the host process.
+    /// </summary>
+    public bool CloseStdinImmediately { get; init; }
+
+    /// <summary>
+    /// Additional environment variables to set for the child process. Merged into the inherited
+    /// environment — existing variables not listed here are preserved unchanged.
+    /// </summary>
+    public IReadOnlyDictionary<string, string> EnvironmentVariables { get; init; } =
+        new Dictionary<string, string>(0);
 }

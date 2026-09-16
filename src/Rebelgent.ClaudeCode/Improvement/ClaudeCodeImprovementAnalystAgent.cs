@@ -9,20 +9,27 @@ namespace Rebelgent.ClaudeCode.Improvement;
 /// Improvement Analyst agent implemented via the Claude Code CLI.
 ///
 /// Hard technical read-only boundary (not just prompt convention):
-/// - Runs with <c>--tools ""</c>, which disables every built-in tool — the agent has no Read,
-///   Write, Edit, Bash, Glob, Grep, or any other tool available at all, so it is technically
-///   incapable of writing files, running shell commands, or mutating git/worktrees regardless
-///   of what the prompt or evidence content says.
-/// - Runs with <c>--permission-mode default</c> — never a bypass/dangerously-skip-permissions
-///   mode. With zero tools available this is defense in depth, not the primary control.
-/// - Never receives <c>-w/--worktree</c> and holds no <see cref="Rebelgent.Orchestration.Workspace.IWorkspaceManager"/>
-///   dependency anywhere in this class or in <see cref="ImprovementOrchestrator"/> — there is no
+/// - Runs with <c>--tools ""</c> — disables every built-in tool (Read, Write, Edit, Bash, Glob,
+///   Grep, etc.) so the agent is technically incapable of writing files or running shell commands
+///   regardless of prompt/evidence content.
+/// - Runs with <c>--permission-mode dontAsk</c> — never a bypass/dangerously-skip-permissions
+///   mode. With zero tools this is defense in depth.
+/// - Runs with <c>--setting-sources project</c> — because the working directory is a freshly
+///   created empty temp directory, this prevents user/local Claude filesystem settings from being
+///   loaded while preserving normal OAuth/keychain authentication (intentional: we use the
+///   existing Claude Code subscription login, not --bare/ANTHROPIC_API_KEY).
+/// - Runs with <c>--strict-mcp-config --mcp-config &lt;empty-config&gt;</c> — an empty
+///   <c>{"mcpServers":{}}</c> file written into the isolated directory prevents any MCP server
+///   from loading.
+/// - Runs with <c>--disable-slash-commands</c> — prevents slash command execution.
+/// - Sets <c>CLAUDE_CODE_DISABLE_AUTO_MEMORY=1</c> in the child environment — prevents auto-
+///   memory from being loaded.
+/// - Never receives <c>-w/--worktree</c> and holds no workspace manager dependency — there is no
 ///   git/worktree capability reachable from this pipeline at all.
 /// - Runs with its working directory set to a freshly created, empty temporary directory outside
 ///   any registered project repository and outside the Rebelgent repository itself (see
-///   <see cref="CreateIsolatedAnalysisDirectory"/>) — never <c>null</c>, which would silently
-///   inherit the host process's own working directory (inside this repo).
-/// - Fails closed: if the executable is not configured or the isolated directory cannot be
+///   <see cref="CreateIsolatedAnalysisDirectory"/>) — never <c>null</c>.
+/// - Fails closed: if the executable is not configured or the isolated environment cannot be
 ///   created, the analyst is never invoked.
 /// </summary>
 public sealed class ClaudeCodeImprovementAnalystAgent : IImprovementAnalystAgent
@@ -36,6 +43,9 @@ public sealed class ClaudeCodeImprovementAnalystAgent : IImprovementAnalystAgent
     /// <summary>Directory name segment used for every isolated analysis directory — exposed so
     /// tests can assert an invocation's working directory is genuinely isolated.</summary>
     internal const string IsolatedDirectoryName = "rebelgent-improvement-analysis";
+
+    internal const string McpConfigFileName = "mcp-config.json";
+    private const string EmptyMcpConfig = """{"mcpServers": {}}""";
 
     public ClaudeCodeImprovementAnalystAgent(
         IProcessRunner processRunner,
@@ -55,17 +65,20 @@ public sealed class ClaudeCodeImprovementAnalystAgent : IImprovementAnalystAgent
             return Fail("ClaudeCode:ExecutablePath is not configured.", AnalystOutputKind.ProcessFailed);
 
         string isolatedDirectory;
+        string mcpConfigPath;
         try
         {
             isolatedDirectory = CreateIsolatedAnalysisDirectory();
+            mcpConfigPath = Path.Combine(isolatedDirectory, McpConfigFileName);
+            File.WriteAllText(mcpConfigPath, EmptyMcpConfig);
         }
         catch (Exception ex)
         {
             // Fail closed — never fall back to running the analyst without a verified isolated
-            // working directory (e.g. by leaving WorkingDirectory null, which would silently
-            // inherit this host process's own working directory inside the Rebelgent repo).
-            _logger.LogError(ex, "Failed to create an isolated analysis directory; refusing to run the Improvement Analyst agent.");
-            return Fail("Could not create an isolated read-only analysis directory. Refusing to run the Improvement Analyst agent.", AnalystOutputKind.ProcessFailed);
+            // environment (e.g. by leaving WorkingDirectory null, which would silently inherit
+            // the host process's own working directory inside the Rebelgent repo).
+            _logger.LogError(ex, "Failed to create isolated analysis environment; refusing to run the Improvement Analyst agent.");
+            return Fail("Could not create isolated analysis environment. Refusing to run the Improvement Analyst agent.", AnalystOutputKind.ProcessFailed);
         }
 
         try
@@ -74,30 +87,68 @@ public sealed class ClaudeCodeImprovementAnalystAgent : IImprovementAnalystAgent
 
             _logger.LogInformation("Running Improvement Analyst agent for pattern: {Title}", input.Title);
 
-            var result = await _processRunner.RunAsync(new ProcessRunOptions
+            var processOptions = new ProcessRunOptions
             {
                 FileName = executablePath,
                 Arguments =
                 [
-                    "-p", prompt,
-                    "--permission-mode", "default",
+                    "--print", prompt,
+                    "--setting-sources", "project",
+                    "--strict-mcp-config",
+                    "--mcp-config", mcpConfigPath,
                     "--tools", "",
+                    "--permission-mode", "dontAsk",
+                    "--disable-slash-commands",
                     "--output-format", "text"
                 ],
                 WorkingDirectory = isolatedDirectory,
-                TimeoutMs = TimeoutMs
-            }, cancellationToken);
+                TimeoutMs = TimeoutMs,
+                CloseStdinImmediately = true,
+                EnvironmentVariables = new Dictionary<string, string>
+                {
+                    ["CLAUDE_CODE_DISABLE_AUTO_MEMORY"] = "1"
+                }
+            };
+
+            var result = await _processRunner.RunAsync(processOptions, cancellationToken);
 
             if (result.TimedOut)
             {
-                _logger.LogWarning("Improvement Analyst agent timed out for pattern: {Title}", input.Title);
+                _logger.LogWarning(
+                    "Improvement Analyst agent timed out for pattern '{Title}' after {TimeoutMs} ms. " +
+                    "Executable={Executable}, WorkingDirectory={WorkingDirectory}",
+                    input.Title, TimeoutMs, executablePath, isolatedDirectory);
                 return Fail("Improvement Analyst agent timed out.", AnalystOutputKind.ProcessFailed);
             }
 
             if (!result.Success)
             {
-                _logger.LogWarning("Improvement Analyst agent failed (exit {ExitCode}): {Error}", result.ExitCode, result.StandardError);
-                return Fail($"Improvement Analyst agent exited with code {result.ExitCode}: {result.StandardError}", AnalystOutputKind.ProcessFailed);
+                var stdoutLen = result.StandardOutput?.Length ?? 0;
+                var stderrLen = result.StandardError?.Length ?? 0;
+                var stdoutSample = TruncateSafe(result.StandardOutput, 300);
+                var stderrSample = TruncateSafe(result.StandardError, 300);
+                var argSummary = BuildArgumentSummary(processOptions.Arguments, promptIndex: 1);
+
+                _logger.LogWarning(
+                    "Improvement Analyst agent failed for pattern '{Title}': " +
+                    "ExitCode={ExitCode}, StdoutLength={StdoutLength}, StderrLength={StderrLength}. " +
+                    "Executable={Executable}. WorkingDirectory={WorkingDirectory}. " +
+                    "Arguments={ArgSummary}. Stdout={StdoutSample}. Stderr={StderrSample}",
+                    input.Title, result.ExitCode, stdoutLen, stderrLen,
+                    executablePath, isolatedDirectory, argSummary,
+                    stdoutSample, stderrSample);
+
+                // When stderr is empty (e.g. Claude Code prints its error to stdout),
+                // surface stdout instead so the failure reason is not silently blank.
+                var errorDetail = !string.IsNullOrWhiteSpace(result.StandardError)
+                    ? TruncateSafe(result.StandardError, 300)
+                    : !string.IsNullOrWhiteSpace(result.StandardOutput)
+                        ? $"stdout: {TruncateSafe(result.StandardOutput, 300)}"
+                        : "(no output on stdout or stderr)";
+
+                return Fail(
+                    $"Improvement Analyst agent exited with code {result.ExitCode}: {errorDetail}",
+                    AnalystOutputKind.ProcessFailed);
             }
 
             var output = result.StandardOutput ?? string.Empty;
@@ -117,6 +168,20 @@ public sealed class ClaudeCodeImprovementAnalystAgent : IImprovementAnalystAgent
             TryRemoveDirectory(isolatedDirectory);
         }
     }
+
+    // Returns a redacted summary of the argument list for diagnostic logging.
+    // The prompt at promptIndex is replaced with its length to avoid logging evidence content.
+    internal static string BuildArgumentSummary(IReadOnlyList<string> arguments, int promptIndex) =>
+        string.Join(" ", arguments.Select((arg, i) =>
+            i == promptIndex ? $"[prompt:{arg.Length} chars]" :
+            arg.Length == 0 ? "\"\"" :
+            arg));
+
+    // Returns a safe truncated string for log output. Never returns null.
+    internal static string TruncateSafe(string? text, int maxLength) =>
+        string.IsNullOrEmpty(text) ? "(empty)" :
+        text.Length <= maxLength ? text.Trim() :
+        text[..maxLength].Trim() + $" ... [{text.Length - maxLength} more chars]";
 
     /// <summary>
     /// Creates a fresh, empty directory under the OS temp root, outside the Rebelgent repository
