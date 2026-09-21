@@ -1,8 +1,10 @@
 using Microsoft.Extensions.DependencyInjection;
+using Rebelgent.ClaudeCode.Evolution;
 using Rebelgent.ClaudeCode.Improvement;
 using Rebelgent.ClaudeCode.Process;
 using Rebelgent.ClaudeCode.QualityOrchestration;
 using Rebelgent.ClaudeCode.ReleaseNotes;
+using Rebelgent.Core.Services;
 using Rebelgent.Orchestration.Agents;
 using Rebelgent.Orchestration.Orchestrator;
 using Rebelgent.Orchestration.Process;
@@ -20,6 +22,8 @@ public static class ClaudeCodeServiceExtensions
         services.AddSingleton<IReleaseNotesAgent, ClaudeCodeReleaseNotesAgent>();
         services.AddSingleton<IImprovementAnalystAgent, ClaudeCodeImprovementAnalystAgent>();
         services.AddSingleton<IImprovementOrchestrator, ImprovementOrchestrator>();
+        services.AddSingleton<IAgentEvolutionManagerAgent, ClaudeCodeAgentEvolutionManagerAgent>();
+        services.AddScoped<IAgentEvolutionOrchestrator, AgentEvolutionOrchestrator>();
 
         return services;
     }

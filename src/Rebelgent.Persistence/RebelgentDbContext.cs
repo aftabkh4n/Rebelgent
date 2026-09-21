@@ -14,6 +14,13 @@ public class RebelgentDbContext : DbContext
     internal DbSet<ExecutionFailureDbRecord> ExecutionFailures => Set<ExecutionFailureDbRecord>();
     internal DbSet<ImprovementProposalDbRecord> ImprovementProposals => Set<ImprovementProposalDbRecord>();
     internal DbSet<EvaluationResultDbRecord> EvaluationResults => Set<EvaluationResultDbRecord>();
+    internal DbSet<AuditEventDbRecord> AuditEvents => Set<AuditEventDbRecord>();
+    internal DbSet<ApprovalRecordDbRecord> ApprovalRecords => Set<ApprovalRecordDbRecord>();
+    internal DbSet<AgentDefinitionDbRecord> AgentDefinitions => Set<AgentDefinitionDbRecord>();
+    internal DbSet<AgentVersionDbRecord> AgentVersions => Set<AgentVersionDbRecord>();
+    internal DbSet<AgentEvolutionProposalDbRecord> AgentEvolutionProposals => Set<AgentEvolutionProposalDbRecord>();
+    internal DbSet<SecurityAuditDeadLetterDbRecord> SecurityAuditDeadLetters => Set<SecurityAuditDeadLetterDbRecord>();
+    internal DbSet<SecurityAuditDeadLetterRecoveryDbRecord> SecurityAuditDeadLetterRecoveries => Set<SecurityAuditDeadLetterRecoveryDbRecord>();
 
     public RebelgentDbContext(DbContextOptions<RebelgentDbContext> options) : base(options) { }
 
@@ -143,6 +150,117 @@ public class RebelgentDbContext : DbContext
             entity.HasIndex(e => e.TaskId);
             entity.HasIndex(e => e.StartedAt);
             entity.HasIndex(e => new { e.TaskId, e.Role });
+        });
+
+        modelBuilder.Entity<AuditEventDbRecord>(entity =>
+        {
+            entity.ToTable("AuditEvents");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SequenceNumber).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.TimestampUtc).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.EventType).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ActorType).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.ActorId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.ResourceType).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ResourceId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Action).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.PayloadJson).IsRequired();
+            entity.Property(e => e.PreviousHash).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.Hash).IsRequired().HasMaxLength(64);
+            entity.HasIndex(e => e.SequenceNumber).IsUnique();
+            entity.HasIndex(e => e.TimestampUtc);
+            entity.HasIndex(e => e.EventType);
+        });
+
+        modelBuilder.Entity<ApprovalRecordDbRecord>(entity =>
+        {
+            entity.ToTable("ApprovalRecords");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ActionType).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.ResourceId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.HumanId).IsRequired();
+            entity.Property(e => e.IdentityProvider).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ExternalIdentityId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.ApprovedAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.RequestId).IsRequired().HasMaxLength(200);
+            entity.HasIndex(e => e.ResourceId);
+            entity.HasIndex(e => e.HumanId);
+        });
+
+        modelBuilder.Entity<AgentDefinitionDbRecord>(entity =>
+        {
+            entity.ToTable("AgentDefinitions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Role).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.Purpose).IsRequired();
+            entity.Property(e => e.Description).IsRequired();
+            entity.Property(e => e.Status).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.CreatedAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.CreatedByHumanId).IsRequired();
+            entity.Property(e => e.ActivatedAt).HasColumnType("INTEGER");
+            entity.Property(e => e.SuspendedAt).HasColumnType("INTEGER");
+            entity.Property(e => e.RetiredAt).HasColumnType("INTEGER");
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.Name);
+        });
+
+        modelBuilder.Entity<AgentVersionDbRecord>(entity =>
+        {
+            entity.ToTable("AgentVersions");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.AgentDefinitionId).IsRequired();
+            entity.Property(e => e.Version).IsRequired().HasMaxLength(50);
+            entity.Property(e => e.PromptTemplate).IsRequired();
+            entity.Property(e => e.Capabilities).IsRequired();
+            entity.Property(e => e.CreatedAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.Status).IsRequired().HasColumnType("INTEGER");
+            entity.HasIndex(e => e.AgentDefinitionId);
+        });
+
+        modelBuilder.Entity<AgentEvolutionProposalDbRecord>(entity =>
+        {
+            entity.ToTable("AgentEvolutionProposals");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.ProposalType).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.TargetProjectId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Purpose).IsRequired();
+            entity.Property(e => e.Evidence).IsRequired();
+            entity.Property(e => e.SuggestedChange).IsRequired();
+            entity.Property(e => e.RiskLevel).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.Status).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.CreatedAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.ApprovedAt).HasColumnType("INTEGER");
+            entity.HasIndex(e => e.Status);
+            entity.HasIndex(e => e.ProposalType);
+        });
+
+        modelBuilder.Entity<SecurityAuditDeadLetterDbRecord>(entity =>
+        {
+            entity.ToTable("SecurityAuditDeadLetters");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.TimestampUtc).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.EventType).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ActorType).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.ActorId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.ResourceType).IsRequired().HasMaxLength(100);
+            entity.Property(e => e.ResourceId).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Action).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.PayloadJson).IsRequired();
+            entity.Property(e => e.PrimaryAuditError).IsRequired().HasMaxLength(4000);
+            entity.HasIndex(e => e.TimestampUtc);
+            entity.HasIndex(e => e.EventType);
+        });
+
+        modelBuilder.Entity<SecurityAuditDeadLetterRecoveryDbRecord>(entity =>
+        {
+            entity.ToTable("SecurityAuditDeadLetterRecoveries");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.DeadLetterId).IsRequired();
+            entity.Property(e => e.RecoveredAuditEventId).IsRequired();
+            entity.Property(e => e.RecoveredAt).IsRequired().HasColumnType("INTEGER");
+            entity.Property(e => e.RecoveredByHumanId).IsRequired();
+            entity.HasIndex(e => e.DeadLetterId);
         });
     }
 }

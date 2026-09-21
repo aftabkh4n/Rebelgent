@@ -22,6 +22,7 @@
     <ProjectReference Include="..\..\src\Rebelgent.Persistence\Rebelgent.Persistence.csproj" />
     <ProjectReference Include="..\..\src\Rebelgent.Core\Rebelgent.Core.csproj" />
     <ProjectReference Include="..\..\src\Rebelgent.Infrastructure\Rebelgent.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Rebelgent.ClaudeCode\Rebelgent.ClaudeCode.csproj" />
   </ItemGroup>
 
 </Project>

@@ -33,6 +33,8 @@ builder.Services.Configure<ClaudeCodeOptions>(
     builder.Configuration.GetSection(ClaudeCodeOptions.SectionName));
 builder.Services.Configure<SelfImprovementOptions>(
     builder.Configuration.GetSection(SelfImprovementOptions.SectionName));
+builder.Services.Configure<Rebelgent.Core.Services.AgentEvolutionOptions>(
+    builder.Configuration.GetSection(Rebelgent.Core.Services.AgentEvolutionOptions.SectionName));
 
 // Core services and agent registry
 builder.Services.AddRebelgent();
@@ -62,6 +64,13 @@ using (var scope = app.Services.CreateScope())
     if (!string.IsNullOrEmpty(dataDir))
         Directory.CreateDirectory(dataDir);
     await db.Database.MigrateAsync();
+
+    // Compatibility bootstrap: ensure the pre-M10 built-in agents appear in the governed
+    // registry. Idempotent — a restart never creates duplicates. If audit persistence fails
+    // during import, this throws so operators see the missing bootstrap rather than a
+    // silently incomplete registry.
+    var bootstrapper = scope.ServiceProvider.GetRequiredService<IBuiltInAgentBootstrapper>();
+    await bootstrapper.EnsureBootstrappedAsync();
 }
 
 app.UseHttpsRedirection();

@@ -1,5 +1,7 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Rebelgent.ClaudeCode.Improvement;
+using Rebelgent.Core.Audit;
 using Rebelgent.Core.Domain;
 using Rebelgent.Core.Repositories;
 using Rebelgent.Core.Services;
@@ -35,6 +37,15 @@ public class TelegramUpdateHandler
     private readonly IPackageOrchestrator _packageOrchestrator;
     private readonly IImprovementOrchestrator _improvementOrchestrator;
     private readonly IAgentExecutionRepository _executionRepository;
+    private readonly IAgentLifecycleService _agentLifecycleService;
+    private readonly IAgentEvolutionOrchestrator _evolutionOrchestrator;
+    private readonly IAgentEvolutionProposalRepository _evolutionProposalRepository;
+    private readonly IAuditRepository _auditRepository;
+    private readonly IAuditLedgerVerifier _auditLedgerVerifier;
+    private readonly ISecurityAuditDeadLetterRepository _deadLetterRepository;
+    private readonly IAuditRecoveryService _auditRecoveryService;
+    private readonly IScopedBackgroundExecutor _backgroundExecutor;
+    private readonly TelegramHumanPrincipalFactory _humanPrincipalFactory;
     private readonly ILogger<TelegramUpdateHandler> _logger;
 
     public TelegramUpdateHandler(
@@ -50,6 +61,15 @@ public class TelegramUpdateHandler
         IPackageOrchestrator packageOrchestrator,
         IImprovementOrchestrator improvementOrchestrator,
         IAgentExecutionRepository executionRepository,
+        IAgentLifecycleService agentLifecycleService,
+        IAgentEvolutionOrchestrator evolutionOrchestrator,
+        IAgentEvolutionProposalRepository evolutionProposalRepository,
+        IAuditRepository auditRepository,
+        IAuditLedgerVerifier auditLedgerVerifier,
+        ISecurityAuditDeadLetterRepository deadLetterRepository,
+        IAuditRecoveryService auditRecoveryService,
+        IScopedBackgroundExecutor backgroundExecutor,
+        TelegramHumanPrincipalFactory humanPrincipalFactory,
         ILogger<TelegramUpdateHandler> logger)
     {
         _taskService = taskService;
@@ -64,6 +84,15 @@ public class TelegramUpdateHandler
         _packageOrchestrator = packageOrchestrator;
         _improvementOrchestrator = improvementOrchestrator;
         _executionRepository = executionRepository;
+        _agentLifecycleService = agentLifecycleService;
+        _evolutionOrchestrator = evolutionOrchestrator;
+        _evolutionProposalRepository = evolutionProposalRepository;
+        _auditRepository = auditRepository;
+        _auditLedgerVerifier = auditLedgerVerifier;
+        _deadLetterRepository = deadLetterRepository;
+        _auditRecoveryService = auditRecoveryService;
+        _backgroundExecutor = backgroundExecutor;
+        _humanPrincipalFactory = humanPrincipalFactory;
         _logger = logger;
     }
 
@@ -82,7 +111,7 @@ public class TelegramUpdateHandler
 
         if (TelegramCommandParser.TryParse(text, out var command))
         {
-            await HandleCommandAsync(chatId, command, text, cancellationToken);
+            await HandleCommandAsync(chatId, userId.Value, command, text, cancellationToken);
         }
         else
         {
@@ -90,7 +119,7 @@ public class TelegramUpdateHandler
         }
     }
 
-    private async Task HandleCommandAsync(long chatId, string command, string rawText, CancellationToken cancellationToken)
+    private async Task HandleCommandAsync(long chatId, long userId, string command, string rawText, CancellationToken cancellationToken)
     {
         switch (command)
         {
@@ -130,7 +159,17 @@ public class TelegramUpdateHandler
                     "/improvement <id> — show proposal detail\n" +
                     "/improve analyze — analyze history and create proposals (no code changes)\n" +
                     "/improvement <id> approve — human approval; creates a normal task (does not run it)\n" +
-                    "/improvement <id> reject — reject a proposal\n\n" +
+                    "/improvement <id> reject — reject a proposal\n" +
+                    "/agents — list all agent definitions\n" +
+                    "/agent <id> <activate|suspend|retire> — manage agent lifecycle\n" +
+                    "/evolutions — list agent evolution proposals\n" +
+                    "/evolution <id> — show agent evolution proposal detail\n" +
+                    "/evolution <id> approve|reject — human decision on an evolution proposal\n" +
+                    "/evolve analyze — analyze system and generate agent evolution proposals\n" +
+                    "/audit — show recent audit events + unresolved security dead-letter count\n" +
+                    "/audit verify — verify the audit ledger hash chain integrity\n" +
+                    "/audit deadletters — list unresolved security dead-letter entries\n" +
+                    "/audit recover <id|all> — repair dead-letter audit records (never replays denied actions)\n\n" +
                     "To create a task with the default project, send any non-command message.",
                     cancellationToken);
                 break;
@@ -217,6 +256,30 @@ public class TelegramUpdateHandler
 
             case "/improve":
                 await HandleImproveCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/agents":
+                await HandleAgentsCommandAsync(chatId, cancellationToken);
+                break;
+
+            case "/agent":
+                await HandleAgentCommandAsync(chatId, userId, rawText, cancellationToken);
+                break;
+
+            case "/evolutions":
+                await HandleEvolutionsCommandAsync(chatId, cancellationToken);
+                break;
+
+            case "/evolution":
+                await HandleEvolutionCommandAsync(chatId, userId, rawText, cancellationToken);
+                break;
+
+            case "/evolve":
+                await HandleEvolveCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/audit":
+                await HandleAuditCommandAsync(chatId, userId, rawText, cancellationToken);
                 break;
 
             default:
@@ -1273,6 +1336,437 @@ public class TelegramUpdateHandler
                 await sender.SendTextAsync(chatId, "An unexpected error occurred during improvement analysis.", CancellationToken.None);
             }
         });
+    }
+
+    private async Task HandleAgentsCommandAsync(long chatId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var agents = await _agentLifecycleService.GetAllAsync(cancellationToken);
+            if (agents.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId, "No agent definitions registered.", cancellationToken);
+                return;
+            }
+
+            var lines = agents.Select(a =>
+                $"[{a.Id.ToString("N")[..8]}] {a.Name}\n  Role: {a.Role}  Status: {a.Status}");
+
+            await _sender.SendTextAsync(chatId, "Agent definitions:\n\n" + string.Join("\n\n", lines), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to retrieve agents for /agents");
+            await _sender.SendTextAsync(chatId, "Unable to retrieve agent definitions right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleAgentCommandAsync(long chatId, long userId, string rawText, CancellationToken cancellationToken)
+    {
+        // /agent <id> <activate|suspend|retire>
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 3)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /agent <id> <activate|suspend|retire>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var action = parts[2].ToLowerInvariant();
+
+        if (action is not ("activate" or "suspend" or "retire"))
+        {
+            await _sender.SendTextAsync(chatId, "Action must be: activate, suspend, or retire", cancellationToken);
+            return;
+        }
+
+        try
+        {
+            var allAgents = await _agentLifecycleService.GetAllAsync(cancellationToken);
+            var matches = allAgents.Where(a => a.Id.ToString("N").StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            if (matches.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId, $"No agent found matching '{prefix}'.", cancellationToken);
+                return;
+            }
+            if (matches.Count > 1)
+            {
+                await _sender.SendTextAsync(chatId, $"Ambiguous agent ID '{prefix}'. Use more characters.", cancellationToken);
+                return;
+            }
+
+            var agent = matches[0];
+            // Create HumanPrincipal from the authenticated Telegram user ID (not from message text)
+            var human = _humanPrincipalFactory.CreateFromTelegramUserId(userId);
+
+            Core.Domain.AgentDefinition result = action switch
+            {
+                "activate" => await _agentLifecycleService.ActivateAsync(agent.Id, human, cancellationToken),
+                "suspend" => await _agentLifecycleService.SuspendAsync(agent.Id, human, cancellationToken),
+                "retire" => await _agentLifecycleService.RetireAsync(agent.Id, human, cancellationToken),
+                _ => throw new InvalidOperationException("Unexpected action.")
+            };
+
+            await _sender.SendTextAsync(chatId,
+                $"Agent [{result.Id.ToString("N")[..8]}] {result.Name}\nStatus: {result.Status}",
+                cancellationToken);
+        }
+        catch (Core.Authority.HumanAuthorizationException ex)
+        {
+            _logger.LogWarning("Authorization denied for /agent {Action}: {Message}", action, ex.Message);
+            await _sender.SendTextAsync(chatId, $"Authorization denied: {ex.Message}", cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to {Action} agent for prefix {Prefix}", action, prefix);
+            await _sender.SendTextAsync(chatId, $"Failed to {action} agent. Please try again.", cancellationToken);
+        }
+    }
+
+    private async Task HandleEvolutionsCommandAsync(long chatId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var proposals = await _evolutionProposalRepository.GetAllAsync(cancellationToken);
+            if (proposals.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId, "No agent evolution proposals yet. Run /evolve analyze to generate some.", cancellationToken);
+                return;
+            }
+
+            var lines = proposals.Take(20).Select(p =>
+                $"[{p.Id.ToString("N")[..8]}] {p.Purpose}\n  Type: {p.ProposalType}  Status: {p.Status}  Risk: {p.RiskLevel}");
+
+            await _sender.SendTextAsync(chatId, "Agent evolution proposals:\n\n" + string.Join("\n\n", lines), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to retrieve evolution proposals for /evolutions");
+            await _sender.SendTextAsync(chatId, "Unable to retrieve evolution proposals right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleEvolutionCommandAsync(long chatId, long userId, string rawText, CancellationToken cancellationToken)
+    {
+        // /evolution <id>                 — show proposal detail
+        // /evolution <id> approve|reject  — privileged, atomic with audit
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /evolution <id> [approve|reject]", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var decision = parts.Length >= 3 ? parts[2].ToLowerInvariant() : null;
+
+        if (decision is not null and not ("approve" or "reject"))
+        {
+            await _sender.SendTextAsync(chatId, "Decision must be: approve or reject", cancellationToken);
+            return;
+        }
+
+        try
+        {
+            var all = await _evolutionProposalRepository.GetAllAsync(cancellationToken);
+            var matches = all.Where(p => p.Id.ToString("N").StartsWith(prefix, StringComparison.OrdinalIgnoreCase)).ToList();
+
+            if (matches.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId, $"No evolution proposal found matching '{prefix}'.", cancellationToken);
+                return;
+            }
+            if (matches.Count > 1)
+            {
+                await _sender.SendTextAsync(chatId, $"Ambiguous proposal ID '{prefix}'. Use more characters.", cancellationToken);
+                return;
+            }
+
+            var proposal = matches[0];
+            var shortId = proposal.Id.ToString("N")[..8];
+
+            if (decision is null)
+            {
+                var evalLine = proposal.EvaluationSummary is not null ? $"\nEvaluation: {proposal.EvaluationSummary}" : string.Empty;
+                var targetLine = $"\nTarget project: {proposal.TargetProjectId}";
+                var taskLine = proposal.CreatedTaskId is Guid createdTaskId
+                    ? $"\nCreated task: {createdTaskId.ToString("N")[..8]}"
+                    : "\nCreated task: none";
+                await _sender.SendTextAsync(chatId,
+                    $"Evolution proposal [{shortId}]\n" +
+                    $"Type: {proposal.ProposalType}\n" +
+                    $"Status: {proposal.Status}\n" +
+                    $"Risk: {proposal.RiskLevel}\n" +
+                    $"Purpose: {proposal.Purpose}\n" +
+                    $"Suggested change: {proposal.SuggestedChange}" +
+                    targetLine + taskLine +
+                    evalLine,
+                    cancellationToken);
+                return;
+            }
+
+            // Privileged path: build HumanPrincipal from authenticated Telegram user ID.
+            var human = _humanPrincipalFactory.CreateFromTelegramUserId(userId);
+            var result = decision == "approve"
+                ? await _evolutionOrchestrator.ApproveAsync(proposal.Id, human, cancellationToken)
+                : await _evolutionOrchestrator.RejectAsync(proposal.Id, human, cancellationToken);
+
+            var verb = decision == "approve" ? "approved" : "rejected";
+            if (decision == "approve" && result.CreatedTaskId is Guid approvedTaskId)
+            {
+                await _sender.SendTextAsync(chatId,
+                    $"Evolution proposal [{shortId}] approved.\n" +
+                    $"Implementation task [{approvedTaskId.ToString("N")[..8]}] created.\n" +
+                    $"Use /run {approvedTaskId.ToString("N")[..8]} to start the normal Developer pipeline.",
+                    cancellationToken);
+            }
+            else
+            {
+                await _sender.SendTextAsync(chatId,
+                    $"Evolution proposal [{shortId}] {verb}. New status: {result.Status}.",
+                    cancellationToken);
+            }
+        }
+        catch (Core.Authority.HumanAuthorizationException ex)
+        {
+            _logger.LogWarning("Authorization denied for /evolution {Decision}: {Message}", decision, ex.Message);
+            await _sender.SendTextAsync(chatId, $"Authorization denied: {ex.Message}", cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to process /evolution for prefix {Prefix}", prefix);
+            await _sender.SendTextAsync(chatId, GetSafeEvolutionErrorMessage(ex), cancellationToken);
+        }
+    }
+
+    private static string GetSafeEvolutionErrorMessage(Exception exception)
+    {
+        var message = string.Join(" ", EnumerateExceptionMessages(exception));
+        if (message.Contains("not registered", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("not a registered project", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("not configured", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("invalid", StringComparison.OrdinalIgnoreCase)
+            || message.Contains("legacy recovery", StringComparison.OrdinalIgnoreCase))
+        {
+            return "Evolution recovery refused: the configured implementation project is missing or not registered.";
+        }
+
+        if (message.Contains("not found", StringComparison.OrdinalIgnoreCase))
+            return "Evolution proposal could not be found. Refresh the proposal ID and try again.";
+
+        return "Unable to process evolution command right now. Please try again.";
+    }
+
+    private static IEnumerable<string> EnumerateExceptionMessages(Exception exception)
+    {
+        for (var current = exception; current is not null; current = current.InnerException)
+            yield return current.Message;
+    }
+
+    private async Task HandleEvolveCommandAsync(long chatId, string rawText, CancellationToken cancellationToken)
+    {
+        // /evolve analyze
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2 || !string.Equals(parts[1], "analyze", StringComparison.OrdinalIgnoreCase))
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /evolve analyze", cancellationToken);
+            return;
+        }
+
+        await _sender.SendTextAsync(chatId,
+            "Analyzing system state for agent evolution opportunities...\n" +
+            "This only creates proposals — no agents are created or modified automatically.\n" +
+            "You will receive a result when it completes.",
+            cancellationToken);
+
+        // Fresh DI scope inside the background executor — the request-scoped orchestrator
+        // (and its DbContext) from the Telegram handler is disposed before the async work
+        // reaches EF Core. Resolve the orchestrator from the new scope's ServiceProvider.
+        var sender = _sender;
+        _backgroundExecutor.Run("/evolve analyze", async (sp, ct2) =>
+        {
+            var orchestrator = sp.GetRequiredService<IAgentEvolutionOrchestrator>();
+            try
+            {
+                var result = await orchestrator.AnalyzeAsync(ct2);
+                var symbol = result.ManagerFailures == 0 ? "✅" : "⚠️";
+                await sender.SendTextAsync(chatId, $"{symbol} {result.Summary}", CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                await sender.SendTextAsync(chatId, "An unexpected error occurred during evolution analysis.", CancellationToken.None);
+                throw new InvalidOperationException("Evolution analysis failed", ex);
+            }
+        });
+    }
+
+    private async Task HandleAuditCommandAsync(long chatId, long userId, string rawText, CancellationToken cancellationToken)
+    {
+        // /audit                        — list recent audit events + unresolved dead-letter count
+        // /audit verify                 — verify ledger integrity
+        // /audit deadletters            — list unresolved security dead-letter entries
+        // /audit recover <id>           — human-authorized: repair one dead-letter into ledger
+        // /audit recover all            — human-authorized: repair all unresolved dead-letters
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var sub = parts.Length >= 2 ? parts[1].ToLowerInvariant() : null;
+
+        if (sub == "verify")
+        {
+            await HandleAuditVerifyAsync(chatId, cancellationToken);
+            return;
+        }
+        if (sub == "deadletters")
+        {
+            await HandleAuditDeadLettersAsync(chatId, cancellationToken);
+            return;
+        }
+        if (sub == "recover")
+        {
+            await HandleAuditRecoverAsync(chatId, userId, parts, cancellationToken);
+            return;
+        }
+
+        try
+        {
+            var events = await _auditRepository.GetRecentAsync(20, cancellationToken);
+            var unresolved = await _deadLetterRepository.CountUnresolvedAsync(cancellationToken);
+
+            var header = $"Recent audit events (unresolved security dead-letters: {unresolved}):";
+            if (events.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId, $"{header}\n\nNo audit events recorded yet.", cancellationToken);
+                return;
+            }
+
+            var lines = events.Select(e =>
+                $"[{e.SequenceNumber}] {e.TimestampUtc:yyyy-MM-dd HH:mm} UTC — {e.EventType}\n" +
+                $"  Actor: {e.ActorType}/{e.ActorId}  Resource: {e.ResourceType}/{e.ResourceId}");
+
+            await _sender.SendTextAsync(chatId, $"{header}\n\n" + string.Join("\n\n", lines), cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to retrieve audit events for /audit");
+            await _sender.SendTextAsync(chatId, "Unable to retrieve audit events right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleAuditVerifyAsync(long chatId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var result = await _auditLedgerVerifier.VerifyAsync(cancellationToken);
+            if (result.IsValid)
+            {
+                await _sender.SendTextAsync(chatId,
+                    $"Audit ledger verified: {result.VerifiedEventCount} events — chain is intact.",
+                    cancellationToken);
+            }
+            else
+            {
+                await _sender.SendTextAsync(chatId,
+                    $"Audit ledger INTEGRITY FAILURE at sequence {result.FirstFailingSequenceNumber}.\n" +
+                    $"Verified {result.VerifiedEventCount} events before failure.\n" +
+                    $"Reason: {result.FailureReason}",
+                    cancellationToken);
+            }
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to verify audit ledger");
+            await _sender.SendTextAsync(chatId, "Unable to verify audit ledger right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleAuditDeadLettersAsync(long chatId, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var entries = await _deadLetterRepository.GetUnresolvedAsync(cancellationToken);
+            if (entries.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId, "No unresolved security dead-letter entries.", cancellationToken);
+                return;
+            }
+
+            var lines = entries.Take(20).Select(e =>
+                $"[{e.Id.ToString("N")[..8]}] {e.TimestampUtc:yyyy-MM-dd HH:mm} UTC — {e.EventType}\n" +
+                $"  Actor: {e.ActorType}/{e.ActorId}  Resource: {e.ResourceType}/{e.ResourceId}\n" +
+                $"  PrimaryError: {Truncate(e.PrimaryAuditError, 120)}");
+
+            await _sender.SendTextAsync(chatId,
+                $"Unresolved security dead-letters ({entries.Count} total):\n\n" + string.Join("\n\n", lines),
+                cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to list dead-letters for /audit deadletters");
+            await _sender.SendTextAsync(chatId, "Unable to list dead-letters right now.", cancellationToken);
+        }
+    }
+
+    private async Task HandleAuditRecoverAsync(long chatId, long userId, string[] parts, CancellationToken cancellationToken)
+    {
+        if (parts.Length < 3)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /audit recover <id|all>", cancellationToken);
+            return;
+        }
+
+        var target = parts[2];
+        try
+        {
+            var human = _humanPrincipalFactory.CreateFromTelegramUserId(userId);
+
+            if (string.Equals(target, "all", StringComparison.OrdinalIgnoreCase))
+            {
+                var batch = await _auditRecoveryService.RecoverAllUnresolvedAsync(human, cancellationToken);
+                await _sender.SendTextAsync(chatId,
+                    $"Recovery batch complete.\n" +
+                    $"Attempted: {batch.Attempted}\n" +
+                    $"Recovered now: {batch.RecoveredNow}\n" +
+                    $"Already resolved: {batch.AlreadyResolved}\n" +
+                    $"Failed: {batch.Failed}\n\n" +
+                    $"Recovery repairs audit records ONLY. It does not replay any denied action.",
+                    cancellationToken);
+                return;
+            }
+
+            var unresolved = await _deadLetterRepository.GetAllAsync(cancellationToken);
+            var matches = unresolved.Where(e => e.Id.ToString("N").StartsWith(target, StringComparison.OrdinalIgnoreCase)).ToList();
+            if (matches.Count == 0)
+            {
+                await _sender.SendTextAsync(chatId, $"No dead-letter found matching '{target}'.", cancellationToken);
+                return;
+            }
+            if (matches.Count > 1)
+            {
+                await _sender.SendTextAsync(chatId, $"Ambiguous dead-letter ID '{target}'. Use more characters.", cancellationToken);
+                return;
+            }
+
+            var result = await _auditRecoveryService.RecoverAsync(matches[0].Id, human, cancellationToken);
+            var status = result.Succeeded
+                ? (result.WasAlreadyResolved
+                    ? $"Already resolved. Linked AuditEvent: {result.RecoveredAuditEventId}"
+                    : $"Recovered. New AuditEvent: {result.RecoveredAuditEventId}")
+                : $"Recovery failed: {result.Reason}";
+            await _sender.SendTextAsync(chatId,
+                $"Dead-letter [{matches[0].Id.ToString("N")[..8]}]: {status}\n" +
+                $"Recovery repairs audit records ONLY. No denied action was replayed.",
+                cancellationToken);
+        }
+        catch (Core.Authority.HumanAuthorizationException ex)
+        {
+            _logger.LogWarning("Authorization denied for /audit recover: {Message}", ex.Message);
+            await _sender.SendTextAsync(chatId, $"Authorization denied: {ex.Message}", cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogError(ex, "Failed to process /audit recover");
+            await _sender.SendTextAsync(chatId, "Unable to process recovery right now.", cancellationToken);
+        }
     }
 
     private static string Truncate(string text, int maxLength) =>

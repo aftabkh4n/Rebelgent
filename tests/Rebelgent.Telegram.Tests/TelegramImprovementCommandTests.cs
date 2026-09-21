@@ -39,7 +39,9 @@ public class TelegramImprovementCommandTests
             new FakeTaskOrchestrator(), new FakeQualityOrchestrator(),
             new FakePullRequestOrchestrator(), new FakeMergeOrchestrator(),
             new FakeReleaseOrchestrator(), new FakePackageOrchestrator(), improvementOrchestrator,
-            new FakeExecutionRepository(), NullLogger<TelegramUpdateHandler>.Instance);
+            new FakeExecutionRepository(),
+            new FakeAgentLifecycleService(), new FakeAgentEvolutionOrchestrator(), new FakeAgentEvolutionProposalRepository(), new FakeAuditRepository(), new FakeAuditLedgerVerifier(), new FakeSecurityAuditDeadLetterRepository(), new FakeAuditRecoveryService(), new FakeScopedBackgroundExecutor(), new TelegramHumanPrincipalFactory(),
+            NullLogger<TelegramUpdateHandler>.Instance);
 
         return (handler, taskService, sender, improvementOrchestrator);
     }

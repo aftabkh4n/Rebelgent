@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Rebelgent.Core.Authority;
 using Rebelgent.Telegram.Authorization;
 using Rebelgent.Telegram.Handlers;
 using Rebelgent.Telegram.Messaging;
@@ -16,6 +17,8 @@ public static class TelegramServiceExtensions
     public static IServiceCollection AddRebelgentTelegram(this IServiceCollection services)
     {
         services.AddSingleton<TelegramAuthorizationService>();
+        services.AddSingleton<TelegramHumanPrincipalFactory>();
+        services.AddSingleton<IHumanPrincipalFactory, TelegramHumanPrincipalFactory>();
         services.AddSingleton<ITelegramMessageSender, TelegramMessageSender>();
         services.AddScoped<TelegramUpdateHandler>();
         services.AddHostedService<TelegramBotService>();
