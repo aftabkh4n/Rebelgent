@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Rebelgent.Agents;
+using Rebelgent.Core.Audit;
+using Rebelgent.Core.Authority;
 using Rebelgent.Core.Observability;
 using Rebelgent.Core.Services;
 using Rebelgent.Infrastructure.Services;
@@ -20,6 +22,13 @@ public static class ServiceCollectionExtensions
         services.AddSingleton<IObservabilityExporter, NullObservabilityExporter>();
         services.AddScoped<IExecutionAnalysisService, ExecutionAnalysisService>();
         services.AddScoped<IMetricsCalculator, MetricsCalculator>();
+        services.AddScoped<IAuditService, AuditService>();
+        services.AddScoped<IHumanAuthorizationService, HumanAuthorizationService>();
+        services.AddScoped<IAgentLifecycleService, AgentLifecycleService>();
+        services.AddScoped<IAuditLedgerVerifier, AuditLedgerVerifier>();
+        services.AddScoped<IAuditRecoveryService, AuditRecoveryService>();
+        services.AddSingleton<IScopedBackgroundExecutor, ScopedBackgroundExecutor>();
+        services.AddScoped<IBuiltInAgentBootstrapper, BuiltInAgentBootstrapper>();
         return services;
     }
 }

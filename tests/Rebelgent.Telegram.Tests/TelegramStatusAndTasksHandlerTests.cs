@@ -23,7 +23,9 @@ public class TelegramStatusAndTasksHandlerTests
         var taskService = new FakeTaskService();
         var sender = new FakeMessageSender();
         var handler = new TelegramUpdateHandler(taskService, sender, auth, new FakeProjectRegistry(), new FakeTaskOrchestrator(),
-            new FakeQualityOrchestrator(), new FakePullRequestOrchestrator(), new FakeMergeOrchestrator(), new FakeReleaseOrchestrator(), new FakePackageOrchestrator(), new FakeImprovementOrchestrator(), new FakeExecutionRepository(), NullLogger<TelegramUpdateHandler>.Instance);
+            new FakeQualityOrchestrator(), new FakePullRequestOrchestrator(), new FakeMergeOrchestrator(), new FakeReleaseOrchestrator(), new FakePackageOrchestrator(), new FakeImprovementOrchestrator(), new FakeExecutionRepository(),
+            new FakeAgentLifecycleService(), new FakeAgentEvolutionOrchestrator(), new FakeAgentEvolutionProposalRepository(), new FakeAuditRepository(), new FakeAuditLedgerVerifier(), new FakeSecurityAuditDeadLetterRepository(), new FakeAuditRecoveryService(), new FakeScopedBackgroundExecutor(), new TelegramHumanPrincipalFactory(),
+            NullLogger<TelegramUpdateHandler>.Instance);
         return (handler, taskService, sender);
     }
 
@@ -36,6 +38,7 @@ public class TelegramStatusAndTasksHandlerTests
             new FakeThrowingTaskService(), sender, auth,
             new FakeProjectRegistry(), new FakeTaskOrchestrator(),
             new FakeQualityOrchestrator(), new FakePullRequestOrchestrator(), new FakeMergeOrchestrator(), new FakeReleaseOrchestrator(), new FakePackageOrchestrator(), new FakeImprovementOrchestrator(), new FakeExecutionRepository(),
+            new FakeAgentLifecycleService(), new FakeAgentEvolutionOrchestrator(), new FakeAgentEvolutionProposalRepository(), new FakeAuditRepository(), new FakeAuditLedgerVerifier(), new FakeSecurityAuditDeadLetterRepository(), new FakeAuditRecoveryService(), new FakeScopedBackgroundExecutor(), new TelegramHumanPrincipalFactory(),
             NullLogger<TelegramUpdateHandler>.Instance);
     }
 

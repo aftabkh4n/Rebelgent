@@ -37,6 +37,7 @@ public class TelegramReviewCommandTests
         var handler = new TelegramUpdateHandler(
             taskService, sender, auth, projectRegistry, orchestrator,
             qualityOrchestrator, new FakePullRequestOrchestrator(), new FakeMergeOrchestrator(), new FakeReleaseOrchestrator(), new FakePackageOrchestrator(), new FakeImprovementOrchestrator(), executionRepo,
+            new FakeAgentLifecycleService(), new FakeAgentEvolutionOrchestrator(), new FakeAgentEvolutionProposalRepository(), new FakeAuditRepository(), new FakeAuditLedgerVerifier(), new FakeSecurityAuditDeadLetterRepository(), new FakeAuditRecoveryService(), new FakeScopedBackgroundExecutor(), new TelegramHumanPrincipalFactory(),
             NullLogger<TelegramUpdateHandler>.Instance);
         return (handler, taskService, sender, qualityOrchestrator, executionRepo);
     }
