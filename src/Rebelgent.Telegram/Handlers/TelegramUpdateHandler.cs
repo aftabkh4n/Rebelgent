@@ -139,6 +139,7 @@ public class TelegramUpdateHandler
                     "/projects — list registered projects\n" +
                     "/task <projectId> <description> — create a task for a project\n" +
                     "/run <taskId> — run the developer agent on a task\n" +
+                    "/retry <taskId> — explicitly retry a failed task\n" +
                     "/taskinfo <taskId> — show task details\n" +
                     "/review <taskId> — trigger QA and code review pipeline\n" +
                     "/review <taskId> <approve|reject|rerun> — human decision after review\n" +
@@ -192,6 +193,10 @@ public class TelegramUpdateHandler
 
             case "/run":
                 await HandleRunCommandAsync(chatId, rawText, cancellationToken);
+                break;
+
+            case "/retry":
+                await HandleRetryCommandAsync(chatId, userId, rawText, cancellationToken);
                 break;
 
             case "/taskinfo":
@@ -418,6 +423,21 @@ public class TelegramUpdateHandler
 
         var task = matches.First();
 
+        if (task.Status == AgentTaskStatus.Failed)
+        {
+            await _sender.SendTextAsync(chatId,
+                $"Task [{task.Id.ToString("N")[..8]}] previously failed.\n" +
+                $"Use /retry {task.Id.ToString("N")[..8]} to explicitly start a new Developer attempt.",
+                cancellationToken);
+            return;
+        }
+
+        if (task.Status != AgentTaskStatus.Created)
+        {
+            await _sender.SendTextAsync(chatId, $"Task is already in {task.Status} and cannot be started with /run.", cancellationToken);
+            return;
+        }
+
         // Validate the project is registered before queuing
         if (_projectRegistry.Find(task.ProjectId) is null)
         {
@@ -426,9 +446,9 @@ public class TelegramUpdateHandler
         }
 
         await _sender.SendTextAsync(chatId,
-            $"Running task [{task.Id.ToString("N")[..8]}] {task.Title}\n" +
+            $"Run requested for task [{task.Id.ToString("N")[..8]}] {task.Title}\n" +
             $"Project: {task.ProjectId}\n\n" +
-            "Agent execution started. You will receive a result when it completes.",
+            "Execution requested. Validating task and workspace before starting.",
             cancellationToken);
 
         // Fire-and-forget: capture singletons, not the scoped handler
@@ -451,6 +471,64 @@ public class TelegramUpdateHandler
             {
                 logger.LogError(ex, "Unhandled exception during orchestration for task {TaskId}", taskId);
                 await sender.SendTextAsync(chatId, "An unexpected error occurred during agent execution.", CancellationToken.None);
+            }
+        });
+    }
+
+    private async Task HandleRetryCommandAsync(long chatId, long userId, string rawText, CancellationToken cancellationToken)
+    {
+        var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length < 2)
+        {
+            await _sender.SendTextAsync(chatId, "Usage: /retry <taskId>", cancellationToken);
+            return;
+        }
+
+        var prefix = parts[1];
+        var matches = await _taskService.FindByPrefixAsync(prefix, 2, cancellationToken);
+        if (matches.Count == 0)
+        {
+            await _sender.SendTextAsync(chatId, $"No task found matching '{prefix}'.", cancellationToken);
+            return;
+        }
+        if (matches.Count > 1)
+        {
+            await _sender.SendTextAsync(chatId, $"Ambiguous task ID '{prefix}'. Use more characters.", cancellationToken);
+            return;
+        }
+
+        var task = matches.First();
+        if (task.Status is not (AgentTaskStatus.Failed or AgentTaskStatus.Planning))
+        {
+            await _sender.SendTextAsync(chatId, $"Task [{task.Id.ToString("N")[..8]}] is not failed and cannot be retried.", cancellationToken);
+            return;
+        }
+
+        var human = _humanPrincipalFactory.CreateFromTelegramUserId(userId);
+        var taskId = task.Id;
+        var orchestrator = _orchestrator;
+        var sender = _sender;
+        var logger = _logger;
+        await _sender.SendTextAsync(chatId,
+            $"Retry requested for task [{taskId.ToString("N")[..8]}].\n" +
+            $"Project: {task.ProjectId}\n" +
+            "Validating a fresh workspace from the current remote default branch.",
+            cancellationToken);
+
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await orchestrator.RetryAsync(taskId, human, CancellationToken.None);
+                var emoji = result.Succeeded ? "✅" : "❌";
+                await sender.SendTextAsync(chatId,
+                    $"{emoji} {result.Summary}\n\nUse /review {taskId.ToString("N")[..8]} to run QA and code review.", CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(ex, "Unhandled retry execution for task {TaskId}", taskId);
+                await sender.SendTextAsync(chatId,
+                    "Retry could not be started. Check the task and project configuration.", CancellationToken.None);
             }
         });
     }

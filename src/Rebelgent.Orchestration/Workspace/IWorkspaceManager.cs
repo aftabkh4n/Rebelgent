@@ -5,7 +5,15 @@ namespace Rebelgent.Orchestration.Workspace;
 /// <summary>Creates and removes isolated git worktrees for agent execution.</summary>
 public interface IWorkspaceManager
 {
+    // Unknown workspace state must fail closed for stranded-retry recovery.
+    Task<bool> HasDeveloperWorkspaceAsync(ProjectDefinition project, Guid taskId, CancellationToken cancellationToken = default)
+        => Task.FromResult(true);
+
     Task<WorkspaceInfo> CreateAsync(ProjectDefinition project, Guid taskId, CancellationToken cancellationToken = default);
+
+    /// <summary>Recreates a failed task's developer worktree from the fetched remote default branch.</summary>
+    Task<WorkspaceInfo> CreateForRetryAsync(ProjectDefinition project, Guid taskId, CancellationToken cancellationToken = default)
+        => CreateAsync(project, taskId, cancellationToken);
 
     /// <summary>Creates a detached worktree from a branch or exact commit SHA (for QA/Reviewer — does not create a new branch).</summary>
     Task<WorkspaceInfo> CreateFromBranchAsync(ProjectDefinition project, string existingBranch, string roleSuffix, string? commitSha = null, CancellationToken cancellationToken = default);

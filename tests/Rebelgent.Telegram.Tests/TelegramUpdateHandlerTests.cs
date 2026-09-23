@@ -1,5 +1,7 @@
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
+using Rebelgent.Core.Domain;
+using Rebelgent.Core.Services;
 using Rebelgent.Orchestration.Projects;
 using Rebelgent.Telegram.Authorization;
 using Rebelgent.Telegram.Handlers;
@@ -91,6 +93,64 @@ public class TelegramUpdateHandlerTests
 
         Assert.Single(sender.SentMessages);
         Assert.Contains("Task created", sender.SentMessages[0].Text);
+    }
+
+    [Fact]
+    public async Task RunCommand_FailedTask_RefusesAndRecommendsRetryWithoutStarting()
+    {
+        var project = new ProjectDefinition { Id = "sandbox", Name = "Sandbox", RepositoryPath = "D:\\Projects\\Sandbox" };
+        var (handler, taskService, sender) = Build([project]);
+        var task = new AgentTask("sandbox", "Failed task", "Previous attempt", AgentRole.BackendDeveloper);
+        var lifecycle = new TaskLifecycleService();
+        lifecycle.Transition(task, AgentTaskStatus.Planning);
+        lifecycle.Transition(task, AgentTaskStatus.AwaitingApproval);
+        lifecycle.Transition(task, AgentTaskStatus.Approved);
+        lifecycle.Transition(task, AgentTaskStatus.InProgress);
+        lifecycle.Transition(task, AgentTaskStatus.Failed);
+        taskService.SeededTasks.Add(task);
+
+        await handler.HandleAsync(TextUpdate(AuthorizedUserId, ChatId, $"/run {task.Id:N}"), CancellationToken.None);
+
+        Assert.Single(sender.SentMessages);
+        Assert.Contains("previously failed", sender.SentMessages[0].Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("/retry", sender.SentMessages[0].Text);
+        Assert.DoesNotContain("Agent execution started", sender.SentMessages[0].Text);
+    }
+
+    [Fact]
+    public async Task RunCommand_PlanningTask_RefusesWithoutClaimingExecutionStarted()
+    {
+        var (handler, service, sender) = Build();
+        var task = new AgentTask("sandbox", "Planning", "Normal planning", AgentRole.BackendDeveloper);
+        new TaskLifecycleService().Transition(task, AgentTaskStatus.Planning);
+        service.SeededTasks.Add(task);
+        await handler.HandleAsync(TextUpdate(AuthorizedUserId, ChatId, $"/run {task.Id:N}"), CancellationToken.None);
+        Assert.Single(sender.SentMessages);
+        Assert.Contains("already in Planning", sender.SentMessages[0].Text);
+        Assert.DoesNotContain("Agent execution started", sender.SentMessages[0].Text);
+        Assert.Equal(AgentTaskStatus.Planning, task.Status);
+    }
+
+    [Fact]
+    public async Task RetryCommand_FailedTask_UsesExplicitRetryFlow()
+    {
+        var project = new ProjectDefinition { Id = "sandbox", Name = "Sandbox", RepositoryPath = "D:\\Projects\\Sandbox" };
+        var (handler, taskService, sender) = Build([project]);
+        var task = new AgentTask("sandbox", "Failed task", "Previous attempt", AgentRole.BackendDeveloper);
+        var lifecycle = new TaskLifecycleService();
+        lifecycle.Transition(task, AgentTaskStatus.Planning);
+        lifecycle.Transition(task, AgentTaskStatus.AwaitingApproval);
+        lifecycle.Transition(task, AgentTaskStatus.Approved);
+        lifecycle.Transition(task, AgentTaskStatus.InProgress);
+        lifecycle.Transition(task, AgentTaskStatus.Failed);
+        taskService.SeededTasks.Add(task);
+
+        await handler.HandleAsync(TextUpdate(AuthorizedUserId, ChatId, $"/retry {task.Id:N}"), CancellationToken.None);
+
+        Assert.NotEmpty(sender.SentMessages);
+        Assert.Contains("Retry requested", sender.SentMessages[0].Text);
+        Assert.DoesNotContain("Attempt:", sender.SentMessages[0].Text);
+        Assert.DoesNotContain("Agent execution started", sender.SentMessages[0].Text);
     }
 
     // --- Commands do not create tasks ---

@@ -32,6 +32,41 @@ internal sealed class GitWorkspaceManager : IWorkspaceManager
         if (string.IsNullOrWhiteSpace(root))
             throw new InvalidOperationException("Workspace:RootPath is not configured.");
 
+        await ValidateSourceAsync(project, cancellationToken);
+        var remoteRef = $"{project.RemoteName}/{project.DefaultBranch}";
+
+        var shortId = taskId.ToString("N")[..8];
+        var branchName = $"rebelgent/task-{shortId}";
+        var workspacePath = Path.Combine(root, $"{project.Id}-{shortId}-developer");
+
+        // Safety: workspace must be under the configured root, not under the source repo
+        var canonicalRoot = Path.GetFullPath(root);
+        var canonicalWorkspace = Path.GetFullPath(workspacePath);
+        if (!canonicalWorkspace.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Workspace path '{workspacePath}' is outside configured root '{root}'.");
+
+        // Pre-flight 6: workspace directory must not already exist
+        if (Directory.Exists(workspacePath))
+            throw new InvalidOperationException($"Workspace directory already exists: '{workspacePath}'. Remove it manually before re-running.");
+
+        _logger.LogInformation("Creating git worktree at {WorkspacePath} from {RemoteRef} for branch {Branch}", workspacePath, remoteRef, branchName);
+
+        var result = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["worktree", "add", workspacePath, "-b", branchName, remoteRef],
+            WorkingDirectory = project.RepositoryPath,
+            TimeoutMs = 30_000
+        }, cancellationToken);
+
+        if (!result.Success)
+            throw new InvalidOperationException($"git worktree add failed: {result.StandardError}");
+
+        return new WorkspaceInfo(workspacePath, branchName);
+    }
+
+    private async Task ValidateSourceAsync(ProjectDefinition project, CancellationToken cancellationToken)
+    {
         // Pre-flight 1: source repository directory exists
         if (!Directory.Exists(project.RepositoryPath))
             throw new InvalidOperationException($"Source repository does not exist: {project.RepositoryPath}");
@@ -85,34 +120,97 @@ internal sealed class GitWorkspaceManager : IWorkspaceManager
         if (!remoteBranchCheckResult.Success)
             throw new InvalidOperationException($"Remote branch '{remoteRef}' does not exist in '{project.RepositoryPath}'.");
 
+    }
+
+    public Task<bool> HasDeveloperWorkspaceAsync(ProjectDefinition project, Guid taskId, CancellationToken cancellationToken = default)
+    {
+        var root = _options.Value.RootPath;
+        if (string.IsNullOrWhiteSpace(root)) return Task.FromResult(true);
+        return Task.FromResult(Directory.Exists(Path.Combine(root, $"{project.Id}-{taskId.ToString("N")[..8]}-developer")));
+    }
+
+    public async Task<WorkspaceInfo> CreateForRetryAsync(ProjectDefinition project, Guid taskId, CancellationToken cancellationToken = default)
+    {
+        var root = _options.Value.RootPath;
+        if (string.IsNullOrWhiteSpace(root))
+            throw new InvalidOperationException("Workspace:RootPath is not configured.");
+        if (!Directory.Exists(project.RepositoryPath))
+            throw new InvalidOperationException($"Source repository does not exist: {project.RepositoryPath}");
+
         var shortId = taskId.ToString("N")[..8];
         var branchName = $"rebelgent/task-{shortId}";
         var workspacePath = Path.Combine(root, $"{project.Id}-{shortId}-developer");
+        EnsureWorkspacePathIsSafe(root, workspacePath);
 
-        // Safety: workspace must be under the configured root, not under the source repo
-        var canonicalRoot = Path.GetFullPath(root);
-        var canonicalWorkspace = Path.GetFullPath(workspacePath);
-        if (!canonicalWorkspace.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException($"Workspace path '{workspacePath}' is outside configured root '{root}'.");
+        await ValidateSourceAsync(project, cancellationToken);
 
-        // Pre-flight 6: workspace directory must not already exist
-        if (Directory.Exists(workspacePath))
-            throw new InvalidOperationException($"Workspace directory already exists: '{workspacePath}'. Remove it manually before re-running.");
-
-        _logger.LogInformation("Creating git worktree at {WorkspacePath} from {RemoteRef} for branch {Branch}", workspacePath, remoteRef, branchName);
-
-        var result = await _processRunner.RunAsync(new ProcessRunOptions
+        var branchExists = await _processRunner.RunAsync(new ProcessRunOptions
         {
             FileName = "git",
-            Arguments = ["worktree", "add", workspacePath, "-b", branchName, remoteRef],
+            Arguments = ["show-ref", "--verify", "--quiet", $"refs/heads/{branchName}"],
             WorkingDirectory = project.RepositoryPath,
-            TimeoutMs = 30_000
+            TimeoutMs = 10_000
+        }, cancellationToken);
+        if (!branchExists.Success && branchExists.ExitCode != 1)
+            throw new InvalidOperationException("Could not inspect the retry branch.");
+        if (branchExists.Success)
+        {
+            var ancestor = await _processRunner.RunAsync(new ProcessRunOptions
+            {
+                FileName = "git",
+                Arguments = ["merge-base", "--is-ancestor", branchName, $"{project.RemoteName}/{project.DefaultBranch}"],
+                WorkingDirectory = project.RepositoryPath,
+                TimeoutMs = 10_000
+            }, cancellationToken);
+            if (!ancestor.Success)
+                throw new InvalidOperationException("Retry branch contains commits not present on the remote default branch, or its history cannot be verified. Preserve and inspect it before retrying.");
+        }
+
+        // The orchestrator has already proved this task has no successful commit, PR, or merge.
+        // Only the deterministic task workspace and task branch are touched here.
+        if (Directory.Exists(workspacePath))
+        {
+            var removeResult = await _processRunner.RunAsync(new ProcessRunOptions
+            {
+                FileName = "git",
+                Arguments = ["worktree", "remove", "--force", workspacePath],
+                WorkingDirectory = project.RepositoryPath,
+                TimeoutMs = 15_000
+            }, cancellationToken);
+            if (!removeResult.Success)
+                throw new InvalidOperationException($"Failed to remove the existing task worktree: {removeResult.StandardError}");
+
+            // Some Git/platform combinations leave the now-unregistered directory behind.
+            // The path was derived from the configured root and exact task ID above.
+            if (Directory.Exists(workspacePath))
+                Directory.Delete(workspacePath, recursive: true);
+        }
+
+        var pruneResult = await _processRunner.RunAsync(new ProcessRunOptions
+        {
+            FileName = "git",
+            Arguments = ["worktree", "prune"],
+            WorkingDirectory = project.RepositoryPath,
+            TimeoutMs = 15_000
         }, cancellationToken);
 
-        if (!result.Success)
-            throw new InvalidOperationException($"git worktree add failed: {result.StandardError}");
+        if (!pruneResult.Success)
+            throw new InvalidOperationException("Could not prune stale worktree registrations.");
 
-        return new WorkspaceInfo(workspacePath, branchName);
+        if (branchExists.Success)
+        {
+            var deleteResult = await _processRunner.RunAsync(new ProcessRunOptions
+            {
+                FileName = "git",
+                Arguments = ["branch", "-D", branchName],
+                WorkingDirectory = project.RepositoryPath,
+                TimeoutMs = 15_000
+            }, cancellationToken);
+            if (!deleteResult.Success)
+                throw new InvalidOperationException($"Failed to recreate the failed task branch: {deleteResult.StandardError}");
+        }
+
+        return await CreateAsync(project, taskId, cancellationToken);
     }
 
     public async Task<string> CommitAsync(string workspacePath, string commitMessage, CancellationToken cancellationToken = default)
@@ -303,5 +401,13 @@ internal sealed class GitWorkspaceManager : IWorkspaceManager
 
         if (!result.Success)
             _logger.LogWarning("git worktree remove returned non-zero: {Error}", result.StandardError);
+    }
+
+    private static void EnsureWorkspacePathIsSafe(string root, string workspacePath)
+    {
+        var canonicalRoot = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar) + Path.DirectorySeparatorChar;
+        var canonicalWorkspace = Path.GetFullPath(workspacePath);
+        if (!canonicalWorkspace.StartsWith(canonicalRoot, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Workspace path '{workspacePath}' is outside configured root '{root}'.");
     }
 }

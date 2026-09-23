@@ -22,6 +22,35 @@ public class TaskLifecycleServiceTests
     }
 
     [Fact]
+    public void Failed_To_Planning_IsRejectedByNormalTransition()
+    {
+        var task = CreateTask();
+        _lifecycle.Transition(task, AgentTaskStatus.Planning);
+        _lifecycle.Transition(task, AgentTaskStatus.AwaitingApproval);
+        _lifecycle.Transition(task, AgentTaskStatus.Approved);
+        _lifecycle.Transition(task, AgentTaskStatus.InProgress);
+        _lifecycle.Transition(task, AgentTaskStatus.Failed);
+
+        Assert.Throws<InvalidTaskTransitionException>(() =>
+            _lifecycle.Transition(task, AgentTaskStatus.Planning));
+    }
+
+    [Fact]
+    public void RetryFailedTask_UsesExplicitOperation()
+    {
+        var task = CreateTask();
+        _lifecycle.Transition(task, AgentTaskStatus.Planning);
+        _lifecycle.Transition(task, AgentTaskStatus.AwaitingApproval);
+        _lifecycle.Transition(task, AgentTaskStatus.Approved);
+        _lifecycle.Transition(task, AgentTaskStatus.InProgress);
+        _lifecycle.Transition(task, AgentTaskStatus.Failed);
+
+        _lifecycle.RetryFailedTask(task);
+
+        Assert.Equal(AgentTaskStatus.Planning, task.Status);
+    }
+
+    [Fact]
     public void Planning_To_AwaitingApproval_Succeeds()
     {
         var task = CreateTask();
