@@ -51,7 +51,7 @@ public sealed class BuiltInAgentBootstrapper : IBuiltInAgentBootstrapper
         new("Improvement Analyst", AgentRole.ImprovementAnalyst,
             "Analyses failure history and drafts improvement proposals.",
             "Read-only Claude Code invocation with zero tools. Never modifies code or approves proposals."),
-        new("Agent Evolution Manager", AgentRole.ImprovementAnalyst,
+        new("Agent Evolution Manager", AgentRole.EvolutionManager,
             "Analyses per-agent performance and drafts agent-evolution proposals.",
             "Read-only Claude Code invocation with zero tools. Cannot create, activate, suspend, or retire any agent — proposals only.")
     ];
