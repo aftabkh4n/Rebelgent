@@ -6,6 +6,9 @@ public static class AuditEventType
     public const string TaskCreated = "TaskCreated";
     public const string TaskStarted = "TaskStarted";
     public const string TaskCompleted = "TaskCompleted";
+    public const string TaskRetryStarted = "TaskRetryStarted";
+    public const string TaskRetryPreflightFailed = "TaskRetryPreflightFailed";
+    public const string TaskRetryRequested = "TaskRetryRequested";
     public const string ExecutionFailed = "ExecutionFailed";
     public const string ImprovementProposalCreated = "ImprovementProposalCreated";
     public const string ImprovementProposalApproved = "ImprovementProposalApproved";

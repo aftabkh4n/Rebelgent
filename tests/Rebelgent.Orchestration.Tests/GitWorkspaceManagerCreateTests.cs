@@ -100,6 +100,94 @@ public class GitWorkspaceManagerCreateTests
     }
 
     [Fact]
+    public async Task CreateForRetryAsync_RemovesStaleWorktreeAndRecreatesBranchFromRemote()
+    {
+        var fake = new FakeProcessRunner();
+        var root = Directory.CreateTempSubdirectory("wsroot").FullName;
+        var repo = Directory.CreateTempSubdirectory("repo").FullName;
+        var taskId = Guid.NewGuid();
+        var shortId = taskId.ToString("N")[..8];
+        var workspacePath = Path.Combine(root, $"sandbox-{shortId}-developer");
+        Directory.CreateDirectory(workspacePath);
+        try
+        {
+            EnqueueSuccessPath(fake); // source validation must precede destructive cleanup
+            fake.Enqueue(Ok()); // branch exists
+            fake.Enqueue(Ok()); // branch is ancestor of remote default
+            fake.Enqueue(Ok()); // worktree remove
+            fake.Enqueue(Ok()); // worktree prune
+            fake.Enqueue(Ok()); // branch -D
+            fake.Enqueue(Ok(".git")); // CreateAsync git-dir
+            fake.Enqueue(Ok("")); // status clean
+            fake.Enqueue(Ok()); // fetch
+            fake.Enqueue(Ok("sha\n")); // remote branch exists
+
+            var manager = BuildManager(fake, root);
+            var project = new ProjectDefinition { Id = "sandbox", Name = "Sandbox", RepositoryPath = repo, DefaultBranch = "main", RemoteName = "origin" };
+
+            var workspace = await manager.CreateForRetryAsync(project, taskId, CancellationToken.None);
+
+            Assert.Equal($"rebelgent/task-{shortId}", workspace.BranchName);
+            Assert.Contains(fake.Calls, c => c.Arguments.SequenceEqual(["worktree", "remove", "--force", workspacePath]));
+            Assert.Contains(fake.Calls, c => c.Arguments.SequenceEqual(["branch", "-D", $"rebelgent/task-{shortId}"]));
+            var add = fake.Calls.Single(c => c.Arguments.Contains("add"));
+            Assert.Contains("origin/main", add.Arguments);
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+            Directory.Delete(repo, true);
+        }
+    }
+
+    [Fact]
+    public async Task Retry_UnrecordedCommits_RefusesBeforeRemovingWorkspaceOrBranch()
+    {
+        var fake = new FakeProcessRunner();
+        var root = Directory.CreateTempSubdirectory("wsroot").FullName;
+        var repo = Directory.CreateTempSubdirectory("repo").FullName;
+        try
+        {
+            EnqueueSuccessPath(fake);
+            fake.Enqueue(Ok()); // branch exists
+            fake.Enqueue(Fail()); // branch has commits absent from remote default
+            var project = new ProjectDefinition { Id = "sandbox", Name = "Sandbox", RepositoryPath = repo };
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() => BuildManager(fake, root).CreateForRetryAsync(project, Guid.NewGuid()));
+            Assert.Contains("commits", error.Message);
+            Assert.DoesNotContain(fake.Calls, c => c.Arguments.Contains("remove") || c.Arguments.Contains("-D"));
+        }
+        finally { Directory.Delete(root, true); Directory.Delete(repo, true); }
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Retry_DirtySourceOrFetchFailure_DoesNotRemoveStaleWorkspace(bool dirty)
+    {
+        var fake = new FakeProcessRunner();
+        var root = Directory.CreateTempSubdirectory("wsroot").FullName;
+        var repo = Directory.CreateTempSubdirectory("repo").FullName;
+        var id = Guid.NewGuid();
+        var stale = Path.Combine(root, $"sandbox-{id.ToString("N")[..8]}-developer");
+        Directory.CreateDirectory(stale);
+        try
+        {
+            fake.Enqueue(Ok(".git"));
+            fake.Enqueue(Ok(dirty ? " M modified.cs" : ""));
+            if (!dirty) fake.Enqueue(Fail("fetch failed"));
+            var project = new ProjectDefinition { Id = "sandbox", Name = "Sandbox", RepositoryPath = repo };
+            await Assert.ThrowsAsync<InvalidOperationException>(() => BuildManager(fake, root).CreateForRetryAsync(project, id));
+            Assert.True(Directory.Exists(stale));
+            Assert.DoesNotContain(fake.Calls, c => c.Arguments.Contains("remove") || c.Arguments.Contains("-D") || c.Arguments.Contains("add"));
+        }
+        finally
+        {
+            Directory.Delete(root, true);
+            Directory.Delete(repo, true);
+        }
+    }
+
+    [Fact]
     public async Task CreateAsync_FetchFails_Throws()
     {
         var fake = new FakeProcessRunner();

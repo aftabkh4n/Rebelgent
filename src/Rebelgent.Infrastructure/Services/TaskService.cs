@@ -67,6 +67,16 @@ public class TaskService : ITaskService
         return task;
     }
 
+    public async Task<AgentTask?> RetryFailedTaskAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        var task = await _repository.GetByIdAsync(id, cancellationToken);
+        if (task is null) return null;
+
+        _lifecycle.RetryFailedTask(task);
+        await _repository.UpdateAsync(task, cancellationToken);
+        return task;
+    }
+
     public async Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default)
     {
         var task = await _repository.GetByIdAsync(id, cancellationToken);

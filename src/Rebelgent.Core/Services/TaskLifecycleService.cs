@@ -39,4 +39,12 @@ public class TaskLifecycleService
     {
         return ValidTransitions.TryGetValue(task.Status, out var allowed) && allowed.Contains(newStatus);
     }
+
+    public void RetryFailedTask(AgentTask task)
+    {
+        if (task.Status != AgentTaskStatus.Failed)
+            throw new InvalidTaskTransitionException(task.Status, AgentTaskStatus.Planning);
+
+        task.SetStatus(AgentTaskStatus.Planning);
+    }
 }

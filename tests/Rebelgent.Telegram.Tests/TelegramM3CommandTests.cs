@@ -227,7 +227,7 @@ public class TelegramM3CommandTests
     }
 
     [Fact]
-    public async Task RunCommand_ValidTask_SendsStartedMessage()
+    public async Task RunCommand_ValidTask_AcknowledgesRequestWithoutClaimingStarted()
     {
         var (handler, taskService, sender, _) = Build();
         var task = await taskService.CreateTaskAsync(new Core.Services.CreateTaskInput("sandbox", "Build feature", "desc"));
@@ -236,7 +236,8 @@ public class TelegramM3CommandTests
         await handler.HandleAsync(TextUpdate(AuthorizedUserId, $"/run {prefix}"), CancellationToken.None);
 
         Assert.NotEmpty(sender.SentMessages);
-        Assert.Contains("execution started", sender.SentMessages[0].Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Execution requested", sender.SentMessages[0].Text);
+        Assert.DoesNotContain("execution started", sender.SentMessages[0].Text, StringComparison.OrdinalIgnoreCase);
     }
 
     // --- /help includes M3 commands ---

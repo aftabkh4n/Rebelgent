@@ -15,6 +15,11 @@ public interface ITaskService
 
     Task<AgentTask?> TransitionAsync(Guid id, AgentTaskStatus newStatus, CancellationToken cancellationToken = default);
 
+    async Task<AgentTask?> RetryFailedTaskAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return null;
+    }
+
     Task<AgentTask?> SetBranchNameAsync(Guid id, string branchName, CancellationToken cancellationToken = default);
 
     Task<AgentTask?> SetPullRequestInfoAsync(Guid id, int pullRequestNumber, string pullRequestUrl, CancellationToken cancellationToken = default);
