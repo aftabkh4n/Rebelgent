@@ -223,4 +223,84 @@ public class BuiltInAgentBootstrapperTests : IDisposable
         var all = await _agentRepo.GetAllAsync();
         Assert.All(all, a => Assert.Equal(BuiltInAgentBootstrapper.SystemBootstrapActorId, a.CreatedByHumanId));
     }
+
+    [Fact]
+    public async Task EnsureBootstrapped_AgentEvolutionManager_UsesEvolutionManagerRole()
+    {
+        await _bootstrapper.EnsureBootstrappedAsync();
+
+        _db.ChangeTracker.Clear();
+        var all = await _agentRepo.GetAllAsync();
+        var evolutionManager = Assert.Single(all, a => a.Name == "Agent Evolution Manager");
+        Assert.Equal(AgentRole.EvolutionManager, evolutionManager.Role);
+    }
+
+    [Fact]
+    public async Task EnsureBootstrapped_ImprovementAnalyst_KeepsImprovementAnalystRole()
+    {
+        await _bootstrapper.EnsureBootstrappedAsync();
+
+        _db.ChangeTracker.Clear();
+        var all = await _agentRepo.GetAllAsync();
+        var improvementAnalyst = Assert.Single(all, a => a.Name == "Improvement Analyst");
+        Assert.Equal(AgentRole.ImprovementAnalyst, improvementAnalyst.Role);
+    }
+
+    [Fact]
+    public async Task EnsureBootstrapped_NoBuiltInSharesRoleWithAgentEvolutionManager()
+    {
+        await _bootstrapper.EnsureBootstrappedAsync();
+
+        _db.ChangeTracker.Clear();
+        var all = await _agentRepo.GetAllAsync();
+        var evolutionManagers = all.Where(a => a.Role == AgentRole.EvolutionManager).ToList();
+        Assert.Single(evolutionManagers);
+        Assert.Equal("Agent Evolution Manager", evolutionManagers[0].Name);
+    }
+
+    [Fact]
+    public async Task Migration_ReassignsExistingAgentEvolutionManagerFromImprovementAnalystToEvolutionManager()
+    {
+        // Simulate a pre-migration installation: the built-in row already exists with
+        // Role = ImprovementAnalyst (int 14, the pre-M10 collision value).
+        var name = "Agent Evolution Manager";
+        var agentId = Guid.NewGuid();
+        var versionId = Guid.NewGuid();
+        var version = AgentVersion.Reconstitute(
+            id: versionId,
+            agentDefinitionId: agentId,
+            version: "1.0.0",
+            promptTemplate: "seed",
+            capabilities: "builtin",
+            providerConfigurationReference: null,
+            createdAt: DateTimeOffset.UtcNow,
+            createdByProposalId: null,
+            evaluationSummary: "seed",
+            status: AgentVersionStatus.Active);
+        await _versionRepo.AddAsync(version);
+
+        var stale = AgentDefinition.Reconstitute(
+            id: agentId,
+            name: name,
+            role: AgentRole.ImprovementAnalyst,
+            purpose: "stale",
+            description: "stale",
+            status: AgentLifecycleStatus.Active,
+            currentVersionId: versionId,
+            createdAt: DateTimeOffset.UtcNow,
+            createdByHumanId: BuiltInAgentBootstrapper.SystemBootstrapActorId,
+            activatedAt: DateTimeOffset.UtcNow,
+            suspendedAt: null,
+            retiredAt: null);
+        await _agentRepo.AddAsync(stale);
+
+        // Apply the same data-fix the ReassignEvolutionManagerRole migration performs.
+        await _db.Database.ExecuteSqlRawAsync(
+            "UPDATE AgentDefinitions SET Role = 15 WHERE Name = 'Agent Evolution Manager' AND Role = 14;");
+
+        _db.ChangeTracker.Clear();
+        var reloaded = await _agentRepo.GetByIdAsync(agentId);
+        Assert.NotNull(reloaded);
+        Assert.Equal(AgentRole.EvolutionManager, reloaded!.Role);
+    }
 }
