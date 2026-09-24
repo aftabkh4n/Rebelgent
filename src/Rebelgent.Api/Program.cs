@@ -71,6 +71,12 @@ using (var scope = app.Services.CreateScope())
     // silently incomplete registry.
     var bootstrapper = scope.ServiceProvider.GetRequiredService<IBuiltInAgentBootstrapper>();
     await bootstrapper.EnsureBootstrappedAsync();
+
+    // Lifecycle reconciliation: derive Implemented state and repair persisted-only gaps
+    // strictly from governed evidence. Idempotent — a restart never re-emits an audit
+    // event or transitions a proposal twice.
+    var reconciler = scope.ServiceProvider.GetRequiredService<IEvolutionLifecycleReconciler>();
+    await reconciler.ReconcileAsync();
 }
 
 app.UseHttpsRedirection();

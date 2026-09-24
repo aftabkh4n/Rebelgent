@@ -24,6 +24,7 @@ public static class ClaudeCodeServiceExtensions
         services.AddSingleton<IImprovementOrchestrator, ImprovementOrchestrator>();
         services.AddSingleton<IAgentEvolutionManagerAgent, ClaudeCodeAgentEvolutionManagerAgent>();
         services.AddScoped<IAgentEvolutionOrchestrator, AgentEvolutionOrchestrator>();
+        services.AddScoped<IEvolutionLifecycleReconciler, EvolutionLifecycleReconciler>();
 
         return services;
     }

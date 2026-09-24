@@ -8,5 +8,6 @@ public enum AgentEvolutionProposalStatus
     Approved = 4,
     Rejected = 5,
     Implemented = 6,
-    Failed = 7
+    Failed = 7,
+    Implementing = 8
 }
