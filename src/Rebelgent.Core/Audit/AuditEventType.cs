@@ -32,4 +32,7 @@ public static class AuditEventType
     public const string LegacyEvolutionTargetBackfilled = "LegacyEvolutionTargetBackfilled";
     public const string EvolutionImplementationTaskCreated = "EvolutionImplementationTaskCreated";
     public const string BuiltInAgentImported = "BuiltInAgentImported";
+    public const string AgentEvolutionImplementationStarted = "AgentEvolutionImplementationStarted";
+    public const string AgentEvolutionImplemented = "AgentEvolutionImplemented";
+    public const string EvolutionTargetProjectRepaired = "EvolutionTargetProjectRepaired";
 }

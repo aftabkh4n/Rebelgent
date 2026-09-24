@@ -56,6 +56,10 @@ internal sealed class EfAgentEvolutionProposalRepository : IAgentEvolutionPropos
         record.EvaluationSummary = proposal.EvaluationSummary;
         record.ApprovedAt = proposal.ApprovedAt?.UtcTicks;
         record.CreatedTaskId = proposal.CreatedTaskId;
+        record.TargetProjectId = proposal.TargetProjectId;
+        record.ImplementationMergeCommitSha = proposal.ImplementationMergeCommitSha;
+        record.ImplementationPullRequestNumber = proposal.ImplementationPullRequestNumber;
+        record.ImplementedAt = proposal.ImplementedAt?.UtcTicks;
 
         await _db.SaveChangesAsync(ct);
         return proposal;

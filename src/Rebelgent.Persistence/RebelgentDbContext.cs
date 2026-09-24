@@ -231,6 +231,9 @@ public class RebelgentDbContext : DbContext
             entity.Property(e => e.Status).IsRequired().HasColumnType("INTEGER");
             entity.Property(e => e.CreatedAt).IsRequired().HasColumnType("INTEGER");
             entity.Property(e => e.ApprovedAt).HasColumnType("INTEGER");
+            entity.Property(e => e.ImplementationMergeCommitSha).HasMaxLength(64);
+            entity.Property(e => e.ImplementationPullRequestNumber).HasColumnType("INTEGER");
+            entity.Property(e => e.ImplementedAt).HasColumnType("INTEGER");
             entity.HasIndex(e => e.Status);
             entity.HasIndex(e => e.ProposalType);
         });

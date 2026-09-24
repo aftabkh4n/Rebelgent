@@ -28,6 +28,20 @@ public sealed class AgentEvolutionProposal
     /// approve-time. Never a raw filesystem path.</summary>
     public string TargetProjectId { get; private set; }
 
+    /// <summary>The merge commit SHA of the implementation task's pull request. Set only when the
+    /// lifecycle reconciler observes a verified human-governed merge on the linked
+    /// <see cref="CreatedTaskId"/>. Never populated from model text or agent-supplied input.</summary>
+    public string? ImplementationMergeCommitSha { get; private set; }
+
+    /// <summary>The pull request number of the implementation task's merged PR. Set only when the
+    /// lifecycle reconciler observes a verified human-governed merge on the linked
+    /// <see cref="CreatedTaskId"/>.</summary>
+    public int? ImplementationPullRequestNumber { get; private set; }
+
+    /// <summary>The wall-clock timestamp at which the reconciler transitioned this proposal to
+    /// <see cref="AgentEvolutionProposalStatus.Implemented"/>.</summary>
+    public DateTimeOffset? ImplementedAt { get; private set; }
+
     public AgentEvolutionProposal(
         AgentEvolutionProposalType proposalType,
         string targetProjectId,
@@ -71,7 +85,10 @@ public sealed class AgentEvolutionProposal
         AgentRole? proposedRole, string purpose, string evidence, string suggestedChange,
         string? suggestedPrompt, string? suggestedCapabilities, RiskLevel riskLevel,
         string? evaluationSummary, AgentEvolutionProposalStatus status, DateTimeOffset createdAt,
-        DateTimeOffset? approvedAt, Guid? createdTaskId)
+        DateTimeOffset? approvedAt, Guid? createdTaskId,
+        string? implementationMergeCommitSha = null,
+        int? implementationPullRequestNumber = null,
+        DateTimeOffset? implementedAt = null)
     {
         return new AgentEvolutionProposal
         {
@@ -91,7 +108,10 @@ public sealed class AgentEvolutionProposal
             Status = status,
             CreatedAt = createdAt,
             ApprovedAt = approvedAt,
-            CreatedTaskId = createdTaskId
+            CreatedTaskId = createdTaskId,
+            ImplementationMergeCommitSha = implementationMergeCommitSha,
+            ImplementationPullRequestNumber = implementationPullRequestNumber,
+            ImplementedAt = implementedAt
         };
     }
 
@@ -179,15 +199,48 @@ public sealed class AgentEvolutionProposal
         Status = AgentEvolutionProposalStatus.Rejected;
     }
 
-    public void MarkImplemented()
+    /// <summary>Transitions an approved proposal to <see cref="AgentEvolutionProposalStatus.Implementing"/>
+    /// after the linked implementation task has started. Never activates or grants any capability
+    /// — it is metadata only.</summary>
+    public void BeginImplementation()
     {
-        if (Status != AgentEvolutionProposalStatus.Approved)
+        if (Status is not (AgentEvolutionProposalStatus.Approved or AgentEvolutionProposalStatus.Implementing))
+            throw new InvalidOperationException($"Cannot begin implementation from status '{Status}'.");
+        Status = AgentEvolutionProposalStatus.Implementing;
+    }
+
+    /// <summary>Transitions the proposal to <see cref="AgentEvolutionProposalStatus.Implemented"/> using
+    /// verified persisted merge evidence from the linked implementation task. Callers MUST NOT
+    /// pass model-supplied strings — only values sourced from the persisted <c>AgentTask</c>.</summary>
+    public void MarkImplemented(string mergeCommitSha, int? pullRequestNumber, DateTimeOffset implementedAt)
+    {
+        if (Status is not (AgentEvolutionProposalStatus.Approved or AgentEvolutionProposalStatus.Implementing))
             throw new InvalidOperationException($"Cannot mark implemented from status '{Status}'.");
+        if (string.IsNullOrWhiteSpace(mergeCommitSha))
+            throw new ArgumentException("MergeCommitSha cannot be empty when marking a proposal implemented.", nameof(mergeCommitSha));
+
         Status = AgentEvolutionProposalStatus.Implemented;
+        ImplementationMergeCommitSha = mergeCommitSha;
+        ImplementationPullRequestNumber = pullRequestNumber;
+        ImplementedAt = implementedAt;
     }
 
     public void MarkFailed()
     {
         Status = AgentEvolutionProposalStatus.Failed;
+    }
+
+    /// <summary>Repairs a persisted-only gap where the target project was set in memory but not
+    /// written to storage. Distinct from <see cref="BackfillLegacyTargetProject"/> because the
+    /// proposal may already have a linked implementation task. Only callable by the lifecycle
+    /// reconciler; never as a general retargeting mechanism.</summary>
+    public void RepairPersistedTargetProject(string targetProjectId)
+    {
+        if (!string.IsNullOrWhiteSpace(TargetProjectId))
+            throw new InvalidOperationException("Cannot repair a proposal whose target project is already persisted.");
+        if (string.IsNullOrWhiteSpace(targetProjectId))
+            throw new ArgumentException("TargetProjectId cannot be empty.", nameof(targetProjectId));
+
+        TargetProjectId = targetProjectId;
     }
 }

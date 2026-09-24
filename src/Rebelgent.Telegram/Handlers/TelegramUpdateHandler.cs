@@ -1441,18 +1441,19 @@ public class TelegramUpdateHandler
 
     private async Task HandleAgentCommandAsync(long chatId, long userId, string rawText, CancellationToken cancellationToken)
     {
-        // /agent <id> <activate|suspend|retire>
+        // /agent <id>                                 — read-only details
+        // /agent <id> <activate|suspend|retire>       — privileged lifecycle transition
         var parts = rawText.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 3)
+        if (parts.Length < 2)
         {
-            await _sender.SendTextAsync(chatId, "Usage: /agent <id> <activate|suspend|retire>", cancellationToken);
+            await _sender.SendTextAsync(chatId, "Usage: /agent <id> [activate|suspend|retire]", cancellationToken);
             return;
         }
 
         var prefix = parts[1];
-        var action = parts[2].ToLowerInvariant();
+        var action = parts.Length >= 3 ? parts[2].ToLowerInvariant() : null;
 
-        if (action is not ("activate" or "suspend" or "retire"))
+        if (action is not null and not ("activate" or "suspend" or "retire"))
         {
             await _sender.SendTextAsync(chatId, "Action must be: activate, suspend, or retire", cancellationToken);
             return;
@@ -1475,6 +1476,28 @@ public class TelegramUpdateHandler
             }
 
             var agent = matches[0];
+
+            if (action is null)
+            {
+                // Read-only details view — no HumanPrincipal built, no lifecycle mutation.
+                var versionLine = agent.CurrentVersionId is Guid versionId
+                    ? $"\nCurrent version: {versionId.ToString("N")[..8]}"
+                    : "\nCurrent version: none";
+                await _sender.SendTextAsync(chatId,
+                    $"Agent [{agent.Id.ToString("N")[..8]}] {agent.Name}\n" +
+                    $"Role: {agent.Role}\n" +
+                    $"Status: {agent.Status}\n" +
+                    $"Purpose: {agent.Purpose}\n" +
+                    $"Description: {agent.Description}" +
+                    versionLine +
+                    $"\nCreated: {agent.CreatedAt:u}" +
+                    (agent.ActivatedAt is DateTimeOffset activated ? $"\nActivated: {activated:u}" : string.Empty) +
+                    (agent.SuspendedAt is DateTimeOffset suspended ? $"\nSuspended: {suspended:u}" : string.Empty) +
+                    (agent.RetiredAt is DateTimeOffset retired ? $"\nRetired: {retired:u}" : string.Empty),
+                    cancellationToken);
+                return;
+            }
+
             // Create HumanPrincipal from the authenticated Telegram user ID (not from message text)
             var human = _humanPrincipalFactory.CreateFromTelegramUserId(userId);
 
@@ -1567,10 +1590,20 @@ public class TelegramUpdateHandler
             if (decision is null)
             {
                 var evalLine = proposal.EvaluationSummary is not null ? $"\nEvaluation: {proposal.EvaluationSummary}" : string.Empty;
-                var targetLine = $"\nTarget project: {proposal.TargetProjectId}";
+                var targetDisplay = string.IsNullOrWhiteSpace(proposal.TargetProjectId) ? "(unset)" : proposal.TargetProjectId;
+                var targetLine = $"\nTarget project: {targetDisplay}";
                 var taskLine = proposal.CreatedTaskId is Guid createdTaskId
                     ? $"\nCreated task: {createdTaskId.ToString("N")[..8]}"
                     : "\nCreated task: none";
+                var prLine = proposal.ImplementationPullRequestNumber is int prNumber
+                    ? $"\nImplementation PR: #{prNumber}"
+                    : string.Empty;
+                var mergeLine = !string.IsNullOrWhiteSpace(proposal.ImplementationMergeCommitSha)
+                    ? $"\nMerge commit: {proposal.ImplementationMergeCommitSha![..Math.Min(8, proposal.ImplementationMergeCommitSha.Length)]}..."
+                    : string.Empty;
+                var implementedLine = proposal.ImplementedAt is DateTimeOffset implementedAt
+                    ? $"\nImplemented: {implementedAt:u}"
+                    : string.Empty;
                 await _sender.SendTextAsync(chatId,
                     $"Evolution proposal [{shortId}]\n" +
                     $"Type: {proposal.ProposalType}\n" +
@@ -1578,7 +1611,7 @@ public class TelegramUpdateHandler
                     $"Risk: {proposal.RiskLevel}\n" +
                     $"Purpose: {proposal.Purpose}\n" +
                     $"Suggested change: {proposal.SuggestedChange}" +
-                    targetLine + taskLine +
+                    targetLine + taskLine + prLine + mergeLine + implementedLine +
                     evalLine,
                     cancellationToken);
                 return;

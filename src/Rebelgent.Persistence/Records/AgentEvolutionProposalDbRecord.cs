@@ -22,6 +22,9 @@ internal class AgentEvolutionProposalDbRecord
     public long CreatedAt { get; set; }
     public long? ApprovedAt { get; set; }
     public Guid? CreatedTaskId { get; set; }
+    public string? ImplementationMergeCommitSha { get; set; }
+    public int? ImplementationPullRequestNumber { get; set; }
+    public long? ImplementedAt { get; set; }
 
     public static AgentEvolutionProposalDbRecord FromDomain(AgentEvolutionProposal p) => new()
     {
@@ -41,7 +44,10 @@ internal class AgentEvolutionProposalDbRecord
         Status = (int)p.Status,
         CreatedAt = p.CreatedAt.UtcTicks,
         ApprovedAt = p.ApprovedAt?.UtcTicks,
-        CreatedTaskId = p.CreatedTaskId
+        CreatedTaskId = p.CreatedTaskId,
+        ImplementationMergeCommitSha = p.ImplementationMergeCommitSha,
+        ImplementationPullRequestNumber = p.ImplementationPullRequestNumber,
+        ImplementedAt = p.ImplementedAt?.UtcTicks
     };
 
     public AgentEvolutionProposal ToDomain() => AgentEvolutionProposal.Reconstitute(
@@ -51,5 +57,8 @@ internal class AgentEvolutionProposalDbRecord
         (RiskLevel)RiskLevel, EvaluationSummary, (AgentEvolutionProposalStatus)Status,
         new DateTimeOffset(CreatedAt, TimeSpan.Zero),
         ApprovedAt.HasValue ? new DateTimeOffset(ApprovedAt.Value, TimeSpan.Zero) : null,
-        CreatedTaskId);
+        CreatedTaskId,
+        ImplementationMergeCommitSha,
+        ImplementationPullRequestNumber,
+        ImplementedAt.HasValue ? new DateTimeOffset(ImplementedAt.Value, TimeSpan.Zero) : null);
 }
